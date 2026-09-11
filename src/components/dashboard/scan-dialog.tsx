@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { Globe, Loader2, ScanSearch } from "lucide-react";
-import { toast } from "sonner";
 import {
   Dialog,
   DialogContent,
@@ -14,29 +13,26 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 
-const DOMAIN_RE =
-  /^(?!-)(?:[a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,63}(?::\d{1,5})?(?:\/\S*)?$/;
+const DOMAIN_RE = /^(?!-)(?:[a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,63}(?::\d{1,5})?$/;
 
 const SCAN_STEPS = [
-  "Resolving DNS…",
-  "Crawling pages…",
-  "Checking internal links…",
-  "Checking external links…",
+  "Scanning target site…",
+  "Discovering internal links…",
+  "Testing every link…",
   "Analyzing status codes…",
-  "Generating report…",
+  "Saving results…",
 ];
 
 interface ScanDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onScanStarted: (domain: string) => void;
+  onScan: (domain: string) => Promise<void>;
 }
 
-export function ScanDialog({ open, onOpenChange, onScanStarted }: ScanDialogProps) {
+export function ScanDialog({ open, onOpenChange, onScan }: ScanDialogProps) {
   const [domain, setDomain] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [scanning, setScanning] = useState(false);
-  const [progress, setProgress] = useState(0);
   const [stepIndex, setStepIndex] = useState(0);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -46,20 +42,25 @@ export function ScanDialog({ open, onOpenChange, onScanStarted }: ScanDialogProp
     };
   }, []);
 
+  function stopTimer() {
+    if (timerRef.current) clearInterval(timerRef.current);
+    timerRef.current = null;
+  }
+
   function reset() {
     setDomain("");
     setError(null);
     setScanning(false);
-    setProgress(0);
     setStepIndex(0);
-    if (timerRef.current) clearInterval(timerRef.current);
+    stopTimer();
   }
 
   function normalize(value: string) {
     return value
       .trim()
+      .toLowerCase()
       .replace(/^https?:\/\//i, "")
-      .replace(/\/+$/, "");
+      .replace(/\/.*$/, "");
   }
 
   function validate(value: string): string | null {
@@ -69,7 +70,7 @@ export function ScanDialog({ open, onOpenChange, onScanStarted }: ScanDialogProp
     return null;
   }
 
-  function startScan() {
+  async function startScan() {
     const cleaned = normalize(domain);
     const err = validate(cleaned);
     setError(err);
@@ -77,27 +78,25 @@ export function ScanDialog({ open, onOpenChange, onScanStarted }: ScanDialogProp
 
     setDomain(cleaned);
     setScanning(true);
-    setProgress(0);
     setStepIndex(0);
-
-    const totalTicks = SCAN_STEPS.length * 10;
-    let tick = 0;
     timerRef.current = setInterval(() => {
-      tick += 1;
-      const pct = Math.min(100, Math.round((tick / totalTicks) * 100));
-      setProgress(pct);
-      setStepIndex(Math.min(SCAN_STEPS.length - 1, Math.floor(tick / 10)));
-      if (tick >= totalTicks) {
-        if (timerRef.current) clearInterval(timerRef.current);
-        toast.success(`Scan complete for ${cleaned}`, {
-          description: "23 pages crawled, 2 broken links detected.",
-        });
-        onScanStarted(cleaned);
-        onOpenChange(false);
-        reset();
-      }
-    }, 140);
+      setStepIndex((i) => Math.min(SCAN_STEPS.length - 1, i + 1));
+    }, 2500);
+
+    try {
+      await onScan(cleaned);
+      stopTimer();
+      onOpenChange(false);
+      reset();
+    } catch (e) {
+      stopTimer();
+      setScanning(false);
+      setStepIndex(0);
+      setError(e instanceof Error ? e.message : "Scan failed. Please try again.");
+    }
   }
+
+  const progress = Math.round(((stepIndex + 1) / (SCAN_STEPS.length + 1)) * 100);
 
   return (
     <Dialog
@@ -116,7 +115,7 @@ export function ScanDialog({ open, onOpenChange, onScanStarted }: ScanDialogProp
             Scan a new site
           </DialogTitle>
           <DialogDescription>
-            Enter a domain and we'll crawl its pages to find broken links.
+            Enter a domain and we'll crawl its pages live to find broken links.
           </DialogDescription>
         </DialogHeader>
 
@@ -134,7 +133,7 @@ export function ScanDialog({ open, onOpenChange, onScanStarted }: ScanDialogProp
                 if (error) setError(null);
               }}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !scanning) startScan();
+                if (e.key === "Enter" && !scanning) void startScan();
               }}
               className="pl-9"
               aria-invalid={!!error}
@@ -167,7 +166,7 @@ export function ScanDialog({ open, onOpenChange, onScanStarted }: ScanDialogProp
           >
             Cancel
           </Button>
-          <Button onClick={startScan} disabled={scanning}>
+          <Button onClick={() => void startScan()} disabled={scanning}>
             {scanning ? "Scanning…" : "Start scan"}
           </Button>
         </DialogFooter>
