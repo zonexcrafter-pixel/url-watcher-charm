@@ -61,6 +61,47 @@ export type Database = {
           },
         ]
       }
+      seo_issues: {
+        Row: {
+          detail: string | null
+          detected_at: string
+          id: string
+          message: string
+          severity: string
+          type: string
+          url: string
+          website_id: string
+        }
+        Insert: {
+          detail?: string | null
+          detected_at?: string
+          id?: string
+          message: string
+          severity: string
+          type: string
+          url: string
+          website_id: string
+        }
+        Update: {
+          detail?: string | null
+          detected_at?: string
+          id?: string
+          message?: string
+          severity?: string
+          type?: string
+          url?: string
+          website_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "seo_issues_website_id_fkey"
+            columns: ["website_id"]
+            isOneToOne: false
+            referencedRelation: "websites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       websites: {
         Row: {
           created_at: string
