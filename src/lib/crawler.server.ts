@@ -164,10 +164,11 @@ export function extractSeoIssues(
   while ((imgMatch = imgRe.exec(html)) !== null) {
     const tag = imgMatch[0];
     const altMatch = /\balt\s*=\s*["']([^"']*)["']/i.exec(tag);
-    if (!altMatch || altMatch[1].trim() === "") {
+    if (!altMatch || (altMatch[1] ?? "").trim() === "") {
       missingAlt += 1;
       const srcMatch = /\bsrc\s*=\s*["']([^"']*)["']/i.exec(tag);
-      if (srcMatch && missingAltSrcs.length < 5) missingAltSrcs.push(srcMatch[1]);
+      const src = srcMatch?.[1];
+      if (src && missingAltSrcs.length < 5) missingAltSrcs.push(src);
     }
   }
   if (missingAlt > 0) {
@@ -184,8 +185,10 @@ export function extractSeoIssues(
   const hrefRe = /href\s*=\s*["'](http:\/\/[^"']+)["']/gi;
   let hrefMatch: RegExpExecArray | null;
   while ((hrefMatch = hrefRe.exec(html)) !== null) {
+    const rawUrl = hrefMatch[1];
+    if (!rawUrl) continue;
     try {
-      if (new URL(hrefMatch[1]).hostname === origin) insecure.add(hrefMatch[1]);
+      if (new URL(rawUrl).hostname === origin) insecure.add(rawUrl);
     } catch {
       // ignore malformed URLs
     }
