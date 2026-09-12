@@ -248,41 +248,8 @@ export async function crawlSite(domain: string): Promise<CrawlResult> {
   const queue: string[] = [startUrl];
   const visited = new Set<string>();
   const found = new Map<string, FoundLink>();
-
-  while (queue.length > 0 && visited.size < MAX_PAGES) {
-    const pageUrl = queue.shift()!;
-    if (visited.has(pageUrl)) continue;
-    visited.add(pageUrl);
-
-    let html = "";
-    try {
-      const res = await timedFetch(pageUrl, { method: "GET" });
-      if (!res.ok) continue;
-      const type = res.headers.get("content-type") ?? "";
-      if (!type.includes("html")) continue;
-      html = (await res.text()).slice(0, 400_000);
-    } catch {
-      if (pageUrl === startUrl) {
-        throw new Error(`Could not reach ${clean}. Check the domain and try again.`);
-      }
-      continue;
-    }
-
-    for (const link of extractLinks(html, pageUrl)) {
-      if (!found.has(link.targetUrl) && found.size < MAX_LINKS) {
-        found.set(link.targetUrl, link);
-      }
-      const host = new URL(link.targetUrl).hostname;
-      if (
-        host === origin &&
-        !visited.has(link.targetUrl) &&
-        visited.size + queue.length < MAX_PAGES
-      ) {
-        queue.push(link.targetUrl);
-      }
-    }
-  }
-
+  const seoIssues: SeoIssue[] = [];
+...
   const links = [...found.values()];
   const broken: BrokenResult[] = [];
   for (let i = 0; i < links.length; i += CONCURRENCY) {
@@ -291,7 +258,12 @@ export async function crawlSite(domain: string): Promise<CrawlResult> {
     for (const result of results) if (result) broken.push(result);
   }
 
-  return { pagesScanned: visited.size, linksChecked: links.length, broken };
+  return {
+    pagesScanned: visited.size,
+    linksChecked: links.length,
+    broken,
+    seoIssues,
+  };
 }
 
 /** Re-test a single URL. Returns null when it is healthy again. */
