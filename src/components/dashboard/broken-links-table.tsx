@@ -36,8 +36,8 @@ import {
   formatRelative,
   statusMeta,
   type BrokenLinkRow,
-  type SeoIssueRow,
 } from "@/lib/monitor-data";
+import { type SeoIssueRow } from "@/lib/monitor.functions";
 
 type Tab = "all" | "links" | "seo";
 

@@ -13,9 +13,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import {
   deleteBrokenLink,
+  deleteSeoIssue,
   deleteWebsite,
   fixBrokenLink,
   listBrokenLinks,
+  listSeoIssues,
   listWebsites,
   recheckBrokenLink,
   scanWebsite,
