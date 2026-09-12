@@ -90,7 +90,9 @@ function AuthPage() {
           <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-md bg-primary">
             <Link2Off className="h-5 w-5 text-primary-foreground" />
           </div>
-          <CardTitle>{mode === "signin" ? "Sign in to LinkWatch" : "Create your account"}</CardTitle>
+          <CardTitle>
+            {mode === "signin" ? "Sign in to LinkWatch" : "Create your account"}
+          </CardTitle>
           <CardDescription>
             Monitor your sites for broken links and keep your health score high.
           </CardDescription>

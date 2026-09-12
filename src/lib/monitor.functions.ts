@@ -1,8 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-const DOMAIN_RE =
-  /^(?!-)(?:[a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,63}(?::\d{1,5})?$/;
+const DOMAIN_RE = /^(?!-)(?:[a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,63}(?::\d{1,5})?$/;
 
 export interface WebsiteRow {
   id: string;
@@ -173,9 +172,7 @@ export const scanWebsite = createServerFn({ method: "POST" })
         .from("websites")
         .update({ status: "error", last_scanned_at: new Date().toISOString() })
         .eq("id", site.id);
-      throw new Error(
-        error instanceof Error ? error.message : "Scan failed. Please try again.",
-      );
+      throw new Error(error instanceof Error ? error.message : "Scan failed. Please try again.");
     }
   });
 
@@ -245,6 +242,15 @@ export const deleteWebsite = createServerFn({ method: "POST" })
   .inputValidator((input: { id: string }) => ({ id: String(input.id) }))
   .handler(async ({ data, context }) => {
     const { error } = await context.supabase.from("websites").delete().eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
+  });
+
+export const deleteSeoIssue = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { id: string }) => ({ id: String(input.id) }))
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase.from("seo_issues").delete().eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };
   });

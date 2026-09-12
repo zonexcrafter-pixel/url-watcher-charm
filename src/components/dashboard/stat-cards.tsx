@@ -6,9 +6,7 @@ export function StatCards({ sites }: { sites: WebsiteRow[] }) {
   const totalSites = sites.length;
   const activeBroken = sites.reduce((sum, s) => sum + s.broken_count, 0);
   const avgHealth = totalSites
-    ? Math.round(
-        sites.reduce((sum, s) => sum + healthScore(s.broken_count), 0) / totalSites,
-      )
+    ? Math.round(sites.reduce((sum, s) => sum + healthScore(s.broken_count), 0) / totalSites)
     : 100;
 
   const stats = [

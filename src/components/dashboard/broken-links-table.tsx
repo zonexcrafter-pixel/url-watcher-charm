@@ -36,8 +36,8 @@ import {
   formatRelative,
   statusMeta,
   type BrokenLinkRow,
-  type SeoIssueRow,
 } from "@/lib/monitor-data";
+import { type SeoIssueRow } from "@/lib/monitor.functions";
 
 type Tab = "all" | "links" | "seo";
 
@@ -47,10 +47,8 @@ const TABS: { value: Tab; label: string }[] = [
   { value: "seo", label: "SEO Fixes" },
 ];
 
-const YELLOW_BADGE =
-  "bg-yellow-500/10 text-yellow-700 border-yellow-500/40 dark:text-yellow-400";
-const RED_BADGE =
-  "bg-red-500/10 text-red-600 border-red-500/40 dark:text-red-400";
+const YELLOW_BADGE = "bg-yellow-500/10 text-yellow-700 border-yellow-500/40 dark:text-yellow-400";
+const RED_BADGE = "bg-red-500/10 text-red-600 border-red-500/40 dark:text-red-400";
 
 /** Short label + badge color for each SEO issue type. */
 const SEO_META: Record<string, { label: string; className: string; tip: string }> = {
@@ -87,7 +85,7 @@ const SEO_META: Record<string, { label: string; className: string; tip: string }
   img_alt_missing: {
     label: "Missing Alt Text",
     className: YELLOW_BADGE,
-    tip: "Add descriptive alt attributes to the listed images. Describe what the image shows; use alt=\"\" only for purely decorative images.",
+    tip: 'Add descriptive alt attributes to the listed images. Describe what the image shows; use alt="" only for purely decorative images.',
   },
   insecure_internal_link: {
     label: "Insecure Link",
@@ -338,9 +336,7 @@ export function BrokenLinksTable({
                           {issue.detail ?? issue.message}
                         </div>
                       </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {row.domain}
-                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">{row.domain}</TableCell>
                       <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
                         {formatRelative(issue.detected_at)}
                       </TableCell>
@@ -427,9 +423,7 @@ export function BrokenLinksTable({
                         </a>
                       )}
                     </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">
-                      {row.domain}
-                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{row.domain}</TableCell>
                     <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
                       {formatRelative(link.detected_at)}
                     </TableCell>
@@ -494,8 +488,8 @@ export function BrokenLinksTable({
           <DialogHeader>
             <DialogTitle>Fix Link</DialogTitle>
             <DialogDescription>
-              Enter the replacement URL for this broken link. It will be saved and the
-              link marked as Fixed / Redirected.
+              Enter the replacement URL for this broken link. It will be saved and the link marked
+              as Fixed / Redirected.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
@@ -543,9 +537,7 @@ export function BrokenLinksTable({
             <div className="rounded-md bg-muted p-3 text-sm">
               <p className="font-medium text-foreground">{seoTarget?.message}</p>
               {seoTarget?.detail && (
-                <p className="mt-1 break-all text-xs text-muted-foreground">
-                  {seoTarget.detail}
-                </p>
+                <p className="mt-1 break-all text-xs text-muted-foreground">{seoTarget.detail}</p>
               )}
             </div>
             <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3">

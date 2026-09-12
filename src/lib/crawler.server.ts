@@ -4,8 +4,7 @@
  * discovered link's HTTP status to find broken ones.
  */
 
-const USER_AGENT =
-  "Mozilla/5.0 (compatible; LinkWatchBot/1.0; +https://linkwatch.app/bot)";
+const USER_AGENT = "Mozilla/5.0 (compatible; LinkWatchBot/1.0; +https://linkwatch.app/bot)";
 
 const MAX_PAGES = 6;
 const MAX_LINKS = 80;
@@ -101,11 +100,7 @@ function decodeEntities(text: string): string {
 }
 
 /** Inspect a page's HTML for on-page SEO flaws. */
-export function extractSeoIssues(
-  html: string,
-  pageUrl: string,
-  origin: string,
-): SeoIssue[] {
+export function extractSeoIssues(html: string, pageUrl: string, origin: string): SeoIssue[] {
   const issues: SeoIssue[] = [];
   const push = (
     type: SeoIssueType,
@@ -133,9 +128,7 @@ export function extractSeoIssues(
     /<meta[^>]*name\s*=\s*["']description["'][^>]*content\s*=\s*["']([^"']*)["'][^>]*>/i.exec(
       html,
     ) ??
-    /<meta[^>]*content\s*=\s*["']([^"']*)["'][^>]*name\s*=\s*["']description["'][^>]*>/i.exec(
-      html,
-    );
+    /<meta[^>]*content\s*=\s*["']([^"']*)["'][^>]*name\s*=\s*["']description["'][^>]*>/i.exec(html);
   const description = descMatch ? decodeEntities((descMatch[1] ?? "").trim()) : "";
   if (!description) {
     push("meta_description_missing", "error", "Page is missing a meta description");
@@ -194,7 +187,12 @@ export function extractSeoIssues(
     }
   }
   for (const url of [...insecure].slice(0, 10)) {
-    push("insecure_internal_link", "warning", "Internal link uses http:// instead of https://", url);
+    push(
+      "insecure_internal_link",
+      "warning",
+      "Internal link uses http:// instead of https://",
+      url,
+    );
   }
 
   return issues;

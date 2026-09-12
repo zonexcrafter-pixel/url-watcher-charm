@@ -13,9 +13,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { supabase } from "@/integrations/supabase/client";
 import {
   deleteBrokenLink,
+  deleteSeoIssue,
   deleteWebsite,
   fixBrokenLink,
   listBrokenLinks,
+  listSeoIssues,
   listWebsites,
   recheckBrokenLink,
   scanWebsite,
@@ -53,11 +55,13 @@ function Dashboard() {
 
   const fetchWebsites = useServerFn(listWebsites);
   const fetchLinks = useServerFn(listBrokenLinks);
+  const fetchSeoIssues = useServerFn(listSeoIssues);
   const runScan = useServerFn(scanWebsite);
   const removeLink = useServerFn(deleteBrokenLink);
   const recheckLink = useServerFn(recheckBrokenLink);
   const removeSite = useServerFn(deleteWebsite);
   const fixLink = useServerFn(fixBrokenLink);
+  const removeSeoIssue = useServerFn(deleteSeoIssue);
 
   async function handleFixLink(id: string, replacementUrl: string) {
     await fixLink({ data: { id, replacementUrl } });
@@ -75,18 +79,25 @@ function Dashboard() {
     queryFn: () => fetchLinks(),
     enabled: !!user,
   });
+  const seoIssuesQuery = useQuery({
+    queryKey: ["seo-issues"],
+    queryFn: () => fetchSeoIssues(),
+    enabled: !!user,
+  });
 
   const sites = sitesQuery.data ?? [];
   const links = linksQuery.data ?? [];
+  const seoIssues = seoIssuesQuery.data ?? [];
 
   const selectedDomain = useMemo(
-    () => sites.find((s) => s.id === selectedSite)?.domain ?? null,
-    [sites, selectedSite],
+    () => (sitesQuery.data ?? []).find((s) => s.id === selectedSite)?.domain ?? null,
+    [sitesQuery.data, selectedSite],
   );
 
   function refresh() {
     void queryClient.invalidateQueries({ queryKey: ["websites"] });
     void queryClient.invalidateQueries({ queryKey: ["broken-links"] });
+    void queryClient.invalidateQueries({ queryKey: ["seo-issues"] });
   }
 
   const scanMutation = useMutation({
@@ -152,6 +163,19 @@ function Dashboard() {
     }
   }
 
+  async function handleDeleteSeoIssue(id: string) {
+    setBusyLinkId(id);
+    try {
+      await removeSeoIssue({ data: { id } });
+      toast.success("SEO issue dismissed");
+      refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not dismiss issue");
+    } finally {
+      setBusyLinkId(null);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-muted/40">
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
@@ -199,8 +223,8 @@ function Dashboard() {
           <div className="rounded-lg border bg-background p-10 text-center">
             <h2 className="text-lg font-semibold">Sign in to start monitoring</h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-              Create an account to scan your domains, store results, and track broken
-              links over time.
+              Create an account to scan your domains, store results, and track broken links over
+              time.
             </p>
             <Button asChild className="mt-4">
               <Link to="/auth">Sign in or create an account</Link>
@@ -221,11 +245,13 @@ function Dashboard() {
               />
               <BrokenLinksTable
                 links={links}
-                loading={linksQuery.isLoading || authLoading}
+                seoIssues={seoIssues}
+                loading={linksQuery.isLoading || seoIssuesQuery.isLoading || authLoading}
                 domainFilter={selectedDomain}
                 onDelete={(id) => void handleDeleteLink(id)}
                 onRecheck={(id) => void handleRecheckLink(id)}
                 onFix={handleFixLink}
+                onDeleteSeoIssue={(id) => void handleDeleteSeoIssue(id)}
                 busyId={busyLinkId}
               />
             </div>

@@ -1,11 +1,12 @@
 # Link Guardian Dashboard
 
 Build a modern SaaS broken link monitoring dashboard. Include:
+
 1. Top summary stat cards for Total Monitored Sites, Active Broken Links, and Site Health Score.
 2. A URL scan input/modal to submit a domain for scanning, with validation and simulated scan progress.
 3. An interactive broken links data table with status code badges (404, 500, etc.), source URL, broken target URL, domain, and timestamp, complete with search and status code filtering.
 4. Monitored websites list/tabs showing scan status (Scanning, Active, Error) and last scanned date.
-Provide rich realistic initial data and clean Shadcn UI styling.
+   Provide rich realistic initial data and clean Shadcn UI styling.
 
 This project was built with [Lovable](https://lovable.dev).
 
