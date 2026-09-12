@@ -19,8 +19,10 @@ export type Database = {
           anchor_text: string | null
           detected_at: string
           error_type: string
+          fixed_at: string | null
           http_status: number | null
           id: string
+          replacement_url: string | null
           source_url: string
           target_url: string
           website_id: string
@@ -29,8 +31,10 @@ export type Database = {
           anchor_text?: string | null
           detected_at?: string
           error_type?: string
+          fixed_at?: string | null
           http_status?: number | null
           id?: string
+          replacement_url?: string | null
           source_url: string
           target_url: string
           website_id: string
@@ -39,8 +43,10 @@ export type Database = {
           anchor_text?: string | null
           detected_at?: string
           error_type?: string
+          fixed_at?: string | null
           http_status?: number | null
           id?: string
+          replacement_url?: string | null
           source_url?: string
           target_url?: string
           website_id?: string
