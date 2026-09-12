@@ -90,8 +90,8 @@ function Dashboard() {
   const seoIssues = seoIssuesQuery.data ?? [];
 
   const selectedDomain = useMemo(
-    () => sites.find((s) => s.id === selectedSite)?.domain ?? null,
-    [sites, selectedSite],
+    () => (sitesQuery.data ?? []).find((s) => s.id === selectedSite)?.domain ?? null,
+    [sitesQuery.data, selectedSite],
   );
 
   function refresh() {
