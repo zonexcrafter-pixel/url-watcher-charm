@@ -3,12 +3,9 @@ import type { BrokenLinkRow, WebsiteRow } from "@/lib/monitor.functions";
 export type { BrokenLinkRow, WebsiteRow };
 
 const RED = "bg-red-500/10 text-red-600 border-red-500/30 dark:text-red-400";
-const ORANGE =
-  "bg-orange-500/10 text-orange-600 border-orange-500/30 dark:text-orange-400";
-const AMBER =
-  "bg-amber-500/10 text-amber-600 border-amber-500/30 dark:text-amber-400";
-const SLATE =
-  "bg-slate-500/10 text-slate-600 border-slate-500/30 dark:text-slate-300";
+const ORANGE = "bg-orange-500/10 text-orange-600 border-orange-500/30 dark:text-orange-400";
+const AMBER = "bg-amber-500/10 text-amber-600 border-amber-500/30 dark:text-amber-400";
+const SLATE = "bg-slate-500/10 text-slate-600 border-slate-500/30 dark:text-slate-300";
 
 export const STATUS_FILTER_OPTIONS = [
   { value: "all", label: "All status codes" },

@@ -1,8 +1,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { requireSupabaseAuth } from "@/integrations/supabase/auth-middleware";
 
-const DOMAIN_RE =
-  /^(?!-)(?:[a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,63}(?::\d{1,5})?$/;
+const DOMAIN_RE = /^(?!-)(?:[a-zA-Z0-9-]{1,63}\.)+[a-zA-Z]{2,63}(?::\d{1,5})?$/;
 
 export interface WebsiteRow {
   id: string;
@@ -173,9 +172,7 @@ export const scanWebsite = createServerFn({ method: "POST" })
         .from("websites")
         .update({ status: "error", last_scanned_at: new Date().toISOString() })
         .eq("id", site.id);
-      throw new Error(
-        error instanceof Error ? error.message : "Scan failed. Please try again.",
-      );
+      throw new Error(error instanceof Error ? error.message : "Scan failed. Please try again.");
     }
   });
 

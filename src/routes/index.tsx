@@ -223,8 +223,8 @@ function Dashboard() {
           <div className="rounded-lg border bg-background p-10 text-center">
             <h2 className="text-lg font-semibold">Sign in to start monitoring</h2>
             <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
-              Create an account to scan your domains, store results, and track broken
-              links over time.
+              Create an account to scan your domains, store results, and track broken links over
+              time.
             </p>
             <Button asChild className="mt-4">
               <Link to="/auth">Sign in or create an account</Link>
