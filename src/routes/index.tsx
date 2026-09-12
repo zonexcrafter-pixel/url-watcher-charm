@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   deleteBrokenLink,
   deleteWebsite,
+  fixBrokenLink,
   listBrokenLinks,
   listWebsites,
   recheckBrokenLink,

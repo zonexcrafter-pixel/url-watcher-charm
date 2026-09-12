@@ -1,16 +1,27 @@
 import { useMemo, useState } from "react";
-import { ArrowUpRight, Link2Off, Loader2, RefreshCw, Search, Trash2 } from "lucide-react";
+import {
+  ArrowUpRight,
+  Download,
+  Link2Off,
+  Loader2,
+  RefreshCw,
+  Search,
+  Trash2,
+  Wrench,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Table,
   TableBody,
@@ -21,11 +32,52 @@ import {
 } from "@/components/ui/table";
 import {
   ERROR_TYPE_LABELS,
-  STATUS_FILTER_OPTIONS,
   formatRelative,
   statusMeta,
   type BrokenLinkRow,
 } from "@/lib/monitor-data";
+
+const STATUS_PILLS = [
+  { value: "all", label: "All" },
+  { value: "404", label: "404 Not Found" },
+  { value: "server", label: "Server Error" },
+] as const;
+
+function csvEscape(value: string | null): string {
+  const v = value ?? "";
+  return /[",\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+function exportCsv(rows: BrokenLinkRow[]) {
+  const header = [
+    "Domain",
+    "Source Page",
+    "Broken Target",
+    "Status Code",
+    "Anchor Text",
+    "Date Detected",
+  ];
+  const lines = rows.map((r) =>
+    [
+      r.domain,
+      r.source_url,
+      r.target_url,
+      r.http_status === null ? "Unreachable" : String(r.http_status),
+      r.anchor_text ?? "",
+      new Date(r.detected_at).toLocaleDateString(),
+    ]
+      .map(csvEscape)
+      .join(","),
+  );
+  const csv = [header.join(","), ...lines].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `linkwatch-audit-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 export function BrokenLinksTable({
   links,
@@ -33,6 +85,7 @@ export function BrokenLinksTable({
   domainFilter,
   onDelete,
   onRecheck,
+  onFix,
   busyId,
 }: {
   links: BrokenLinkRow[];
@@ -40,20 +93,24 @@ export function BrokenLinksTable({
   domainFilter: string | null;
   onDelete: (id: string) => void;
   onRecheck: (id: string) => void;
+  onFix: (id: string, replacementUrl: string) => Promise<void>;
   busyId: string | null;
 }) {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [fixTarget, setFixTarget] = useState<BrokenLinkRow | null>(null);
+  const [replacementUrl, setReplacementUrl] = useState("");
+  const [fixError, setFixError] = useState<string | null>(null);
+  const [fixing, setFixing] = useState(false);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return links.filter((link) => {
       if (domainFilter && link.domain !== domainFilter) return false;
-      if (statusFilter === "unreachable" && link.http_status !== null) return false;
+      if (statusFilter === "404" && link.http_status !== 404) return false;
       if (
-        statusFilter !== "all" &&
-        statusFilter !== "unreachable" &&
-        link.http_status !== Number(statusFilter)
+        statusFilter === "server" &&
+        (link.http_status === null || link.http_status < 500)
       )
         return false;
       if (
@@ -67,16 +124,42 @@ export function BrokenLinksTable({
     });
   }, [links, query, statusFilter, domainFilter]);
 
+  async function submitFix() {
+    if (!fixTarget) return;
+    setFixing(true);
+    setFixError(null);
+    try {
+      await onFix(fixTarget.id, replacementUrl);
+      setFixTarget(null);
+      setReplacementUrl("");
+    } catch (error) {
+      setFixError(error instanceof Error ? error.message : "Could not save replacement");
+    } finally {
+      setFixing(false);
+    }
+  }
+
   return (
     <Card>
       <CardHeader className="space-y-3 pb-4">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <CardTitle className="text-base">Broken Links</CardTitle>
-          <Badge variant="secondary" className="tabular-nums">
-            {rows.length} result{rows.length === 1 ? "" : "s"}
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="tabular-nums">
+              {rows.length} result{rows.length === 1 ? "" : "s"}
+            </Badge>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={rows.length === 0}
+              onClick={() => exportCsv(rows)}
+            >
+              <Download className="mr-1.5 h-4 w-4" />
+              Export Audit Report
+            </Button>
+          </div>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -86,18 +169,19 @@ export function BrokenLinksTable({
               className="pl-9"
             />
           </div>
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-44">
-              <SelectValue placeholder="Status code" />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_FILTER_OPTIONS.map((option) => (
-                <SelectItem key={option.value} value={option.value}>
-                  {option.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="flex gap-1.5">
+            {STATUS_PILLS.map((pill) => (
+              <Button
+                key={pill.value}
+                variant={statusFilter === pill.value ? "default" : "outline"}
+                size="sm"
+                className="rounded-full"
+                onClick={() => setStatusFilter(pill.value)}
+              >
+                {pill.label}
+              </Button>
+            ))}
+          </div>
         </div>
       </CardHeader>
       <CardContent className="p-0">
@@ -137,14 +221,26 @@ export function BrokenLinksTable({
               rows.map((link) => {
                 const meta = statusMeta(link.http_status);
                 const busy = busyId === link.id;
+                const fixed = link.fixed_at !== null;
                 return (
                   <TableRow key={link.id}>
                     <TableCell className="pl-6">
-                      <Badge variant="outline" className={meta.className}>
-                        {meta.label}
-                      </Badge>
+                      {fixed ? (
+                        <Badge
+                          variant="outline"
+                          className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 dark:text-emerald-400"
+                        >
+                          Fixed
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline" className={meta.className}>
+                          {meta.label}
+                        </Badge>
+                      )}
                       <div className="mt-1 text-xs text-muted-foreground">
-                        {ERROR_TYPE_LABELS[link.error_type] ?? link.error_type}
+                        {fixed
+                          ? "Redirected"
+                          : (ERROR_TYPE_LABELS[link.error_type] ?? link.error_type)}
                       </div>
                     </TableCell>
                     <TableCell className="max-w-64">
@@ -166,6 +262,17 @@ export function BrokenLinksTable({
                         <span className="truncate">{link.target_url}</span>
                         <ArrowUpRight className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
                       </a>
+                      {fixed && link.replacement_url && (
+                        <a
+                          href={link.replacement_url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="mt-0.5 block truncate text-xs text-emerald-600 hover:underline dark:text-emerald-400"
+                          title={link.replacement_url}
+                        >
+                          → {link.replacement_url}
+                        </a>
+                      )}
                     </TableCell>
                     <TableCell className="text-sm text-muted-foreground">
                       {link.domain}
@@ -175,6 +282,22 @@ export function BrokenLinksTable({
                     </TableCell>
                     <TableCell className="pr-6 text-right">
                       <div className="flex justify-end gap-1">
+                        {!fixed && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 px-2 text-xs"
+                            disabled={busy}
+                            onClick={() => {
+                              setFixTarget(link);
+                              setReplacementUrl(link.replacement_url ?? "");
+                              setFixError(null);
+                            }}
+                          >
+                            <Wrench className="h-3 w-3" />
+                            <span className="ml-1 hidden sm:inline">Fix Link</span>
+                          </Button>
+                        )}
                         <Button
                           variant="ghost"
                           size="sm"
@@ -204,6 +327,54 @@ export function BrokenLinksTable({
           </TableBody>
         </Table>
       </CardContent>
+
+      <Dialog
+        open={fixTarget !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setFixTarget(null);
+            setFixError(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Fix Link</DialogTitle>
+            <DialogDescription>
+              Enter the replacement URL for this broken link. It will be saved and the
+              link marked as Fixed / Redirected.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-md bg-muted p-2 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Broken:</span>{" "}
+              <span className="break-all">{fixTarget?.target_url}</span>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="replacement-url">Target Replacement URL</Label>
+              <Input
+                id="replacement-url"
+                placeholder="https://example.com/new-page"
+                value={replacementUrl}
+                onChange={(e) => setReplacementUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void submitFix();
+                }}
+              />
+              {fixError && <p className="text-xs text-destructive">{fixError}</p>}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setFixTarget(null)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void submitFix()} disabled={fixing || !replacementUrl.trim()}>
+              {fixing && <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />}
+              Save Replacement
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }
