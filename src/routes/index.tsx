@@ -79,9 +79,15 @@ function Dashboard() {
     queryFn: () => fetchLinks(),
     enabled: !!user,
   });
+  const seoIssuesQuery = useQuery({
+    queryKey: ["seo-issues"],
+    queryFn: () => fetchSeoIssues(),
+    enabled: !!user,
+  });
 
   const sites = sitesQuery.data ?? [];
   const links = linksQuery.data ?? [];
+  const seoIssues = seoIssuesQuery.data ?? [];
 
   const selectedDomain = useMemo(
     () => sites.find((s) => s.id === selectedSite)?.domain ?? null,
@@ -91,6 +97,7 @@ function Dashboard() {
   function refresh() {
     void queryClient.invalidateQueries({ queryKey: ["websites"] });
     void queryClient.invalidateQueries({ queryKey: ["broken-links"] });
+    void queryClient.invalidateQueries({ queryKey: ["seo-issues"] });
   }
 
   const scanMutation = useMutation({
