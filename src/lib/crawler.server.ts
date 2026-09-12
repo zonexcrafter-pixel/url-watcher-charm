@@ -23,10 +23,29 @@ export interface BrokenResult extends FoundLink {
   errorType: string;
 }
 
+export type SeoIssueType =
+  | "title_missing"
+  | "title_length"
+  | "meta_description_missing"
+  | "meta_description_length"
+  | "h1_missing"
+  | "h1_multiple"
+  | "img_alt_missing"
+  | "insecure_internal_link";
+
+export interface SeoIssue {
+  type: SeoIssueType;
+  url: string;
+  severity: "error" | "warning";
+  message: string;
+  detail: string | null;
+}
+
 export interface CrawlResult {
   pagesScanned: number;
   linksChecked: number;
   broken: BrokenResult[];
+  seoIssues: SeoIssue[];
 }
 
 export function normalizeDomain(input: string): string {
