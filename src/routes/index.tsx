@@ -14,6 +14,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   deleteBrokenLink,
   deleteWebsite,
+  fixBrokenLink,
   listBrokenLinks,
   listWebsites,
   recheckBrokenLink,
@@ -56,6 +57,13 @@ function Dashboard() {
   const removeLink = useServerFn(deleteBrokenLink);
   const recheckLink = useServerFn(recheckBrokenLink);
   const removeSite = useServerFn(deleteWebsite);
+  const fixLink = useServerFn(fixBrokenLink);
+
+  async function handleFixLink(id: string, replacementUrl: string) {
+    await fixLink({ data: { id, replacementUrl } });
+    toast.success("Replacement saved — link marked as Fixed / Redirected");
+    refresh();
+  }
 
   const sitesQuery = useQuery({
     queryKey: ["websites"],
@@ -217,6 +225,7 @@ function Dashboard() {
                 domainFilter={selectedDomain}
                 onDelete={(id) => void handleDeleteLink(id)}
                 onRecheck={(id) => void handleRecheckLink(id)}
+                onFix={handleFixLink}
                 busyId={busyLinkId}
               />
             </div>

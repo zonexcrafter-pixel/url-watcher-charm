@@ -24,6 +24,8 @@ export interface BrokenLinkRow {
   http_status: number | null;
   error_type: string;
   detected_at: string;
+  replacement_url: string | null;
+  fixed_at: string | null;
 }
 
 export const listWebsites = createServerFn({ method: "GET" })
@@ -48,7 +50,7 @@ export const listBrokenLinks = createServerFn({ method: "GET" })
     const { data, error } = await context.supabase
       .from("broken_links")
       .select(
-        "id, website_id, source_url, target_url, anchor_text, http_status, error_type, detected_at, websites(domain)",
+        "id, website_id, source_url, target_url, anchor_text, http_status, error_type, detected_at, replacement_url, fixed_at, websites(domain)",
       )
       .order("detected_at", { ascending: false });
     if (error) throw new Error(error.message);
@@ -170,6 +172,29 @@ export const recheckBrokenLink = createServerFn({ method: "POST" })
       })
       .eq("id", row.id);
     return { fixed: false, httpStatus: result.httpStatus };
+  });
+
+/** Save a replacement URL for a broken link and mark it as fixed/redirected. */
+export const fixBrokenLink = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { id: string; replacementUrl: string }) => {
+    const id = String(input?.id ?? "");
+    const replacementUrl = String(input?.replacementUrl ?? "").trim();
+    if (!/^https?:\/\/\S+$/i.test(replacementUrl)) {
+      throw new Error("Enter a full URL starting with http:// or https://");
+    }
+    return { id, replacementUrl };
+  })
+  .handler(async ({ data, context }) => {
+    const { error } = await context.supabase
+      .from("broken_links")
+      .update({
+        replacement_url: data.replacementUrl,
+        fixed_at: new Date().toISOString(),
+      })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+    return { ok: true };
   });
 
 export const deleteWebsite = createServerFn({ method: "POST" })

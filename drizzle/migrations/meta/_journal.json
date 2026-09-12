@@ -8,6 +8,13 @@
       "when": 1789129960921,
       "tag": "0000_create_link_monitor_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1789182344347,
+      "tag": "0001_add_replacement_url",
+      "breakpoints": true
     }
   ]
 }
