@@ -28,6 +28,34 @@ export interface BrokenLinkRow {
   fixed_at: string | null;
 }
 
+export interface SeoIssueRow {
+  id: string;
+  website_id: string;
+  domain: string;
+  type: string;
+  url: string;
+  severity: "error" | "warning";
+  message: string;
+  detail: string | null;
+  detected_at: string;
+}
+
+export const listSeoIssues = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<SeoIssueRow[]> => {
+    const { data, error } = await context.supabase
+      .from("seo_issues")
+      .select("id, website_id, type, url, severity, message, detail, detected_at, websites(domain)")
+      .order("detected_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data ?? []).map((row) => {
+      const { websites, ...rest } = row as typeof row & {
+        websites: { domain: string } | null;
+      };
+      return { ...rest, domain: websites?.domain ?? "" } as SeoIssueRow;
+    });
+  });
+
 export const listWebsites = createServerFn({ method: "GET" })
   .middleware([requireSupabaseAuth])
   .handler(async ({ context }): Promise<WebsiteRow[]> => {
@@ -94,6 +122,21 @@ export const scanWebsite = createServerFn({ method: "POST" })
       const result = await crawlSite(data.domain);
 
       await supabase.from("broken_links").delete().eq("website_id", site.id);
+      await supabase.from("seo_issues").delete().eq("website_id", site.id);
+
+      if (result.seoIssues.length > 0) {
+        const { error: seoError } = await supabase.from("seo_issues").insert(
+          result.seoIssues.map((issue) => ({
+            website_id: site.id,
+            type: issue.type,
+            url: issue.url,
+            severity: issue.severity,
+            message: issue.message,
+            detail: issue.detail,
+          })),
+        );
+        if (seoError) throw new Error(seoError.message);
+      }
 
       if (result.broken.length > 0) {
         const { error: insertError } = await supabase.from("broken_links").insert(

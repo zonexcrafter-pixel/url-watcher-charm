@@ -15,6 +15,13 @@
       "when": 1789182344347,
       "tag": "0001_add_replacement_url",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1789186470225,
+      "tag": "0002_create_seo_issues",
+      "breakpoints": true
     }
   ]
 }
