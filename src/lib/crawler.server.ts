@@ -23,10 +23,29 @@ export interface BrokenResult extends FoundLink {
   errorType: string;
 }
 
+export type SeoIssueType =
+  | "title_missing"
+  | "title_length"
+  | "meta_description_missing"
+  | "meta_description_length"
+  | "h1_missing"
+  | "h1_multiple"
+  | "img_alt_missing"
+  | "insecure_internal_link";
+
+export interface SeoIssue {
+  type: SeoIssueType;
+  url: string;
+  severity: "error" | "warning";
+  message: string;
+  detail: string | null;
+}
+
 export interface CrawlResult {
   pagesScanned: number;
   linksChecked: number;
   broken: BrokenResult[];
+  seoIssues: SeoIssue[];
 }
 
 export function normalizeDomain(input: string): string {
@@ -69,6 +88,116 @@ function stripTags(html: string): string {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 120);
+}
+
+function decodeEntities(text: string): string {
+  return text
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&nbsp;/g, " ");
+}
+
+/** Inspect a page's HTML for on-page SEO flaws. */
+export function extractSeoIssues(
+  html: string,
+  pageUrl: string,
+  origin: string,
+): SeoIssue[] {
+  const issues: SeoIssue[] = [];
+  const push = (
+    type: SeoIssueType,
+    severity: SeoIssue["severity"],
+    message: string,
+    detail: string | null = null,
+  ) => issues.push({ type, url: pageUrl, severity, message, detail });
+
+  // 1. Title
+  const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html);
+  const title = titleMatch ? decodeEntities(stripTags(titleMatch[1] ?? "")) : "";
+  if (!title) {
+    push("title_missing", "error", "Page is missing a <title> tag");
+  } else if (title.length < 30 || title.length > 60) {
+    push(
+      "title_length",
+      "warning",
+      `Title length is ${title.length} characters (recommended 30-60)`,
+      title,
+    );
+  }
+
+  // 2. Meta description
+  const descMatch =
+    /<meta[^>]*name\s*=\s*["']description["'][^>]*content\s*=\s*["']([^"']*)["'][^>]*>/i.exec(
+      html,
+    ) ??
+    /<meta[^>]*content\s*=\s*["']([^"']*)["'][^>]*name\s*=\s*["']description["'][^>]*>/i.exec(
+      html,
+    );
+  const description = descMatch ? decodeEntities((descMatch[1] ?? "").trim()) : "";
+  if (!description) {
+    push("meta_description_missing", "error", "Page is missing a meta description");
+  } else if (description.length < 70 || description.length > 160) {
+    push(
+      "meta_description_length",
+      "warning",
+      `Meta description length is ${description.length} characters (recommended 70-160)`,
+      description,
+    );
+  }
+
+  // 3. H1
+  const h1Count = (html.match(/<h1\b[^>]*>/gi) ?? []).length;
+  if (h1Count === 0) {
+    push("h1_missing", "error", "Page is missing an <h1> heading");
+  } else if (h1Count > 1) {
+    push("h1_multiple", "warning", `Page has ${h1Count} <h1> headings (recommended exactly 1)`);
+  }
+
+  // 4. Images missing alt
+  const imgRe = /<img\b[^>]*>/gi;
+  let imgMatch: RegExpExecArray | null;
+  let missingAlt = 0;
+  const missingAltSrcs: string[] = [];
+  while ((imgMatch = imgRe.exec(html)) !== null) {
+    const tag = imgMatch[0];
+    const altMatch = /\balt\s*=\s*["']([^"']*)["']/i.exec(tag);
+    if (!altMatch || (altMatch[1] ?? "").trim() === "") {
+      missingAlt += 1;
+      const srcMatch = /\bsrc\s*=\s*["']([^"']*)["']/i.exec(tag);
+      const src = srcMatch?.[1];
+      if (src && missingAltSrcs.length < 5) missingAltSrcs.push(src);
+    }
+  }
+  if (missingAlt > 0) {
+    push(
+      "img_alt_missing",
+      "warning",
+      `${missingAlt} image(s) missing alt text`,
+      missingAltSrcs.join(", ") || null,
+    );
+  }
+
+  // 5. Insecure internal links
+  const insecure = new Set<string>();
+  const hrefRe = /href\s*=\s*["'](http:\/\/[^"']+)["']/gi;
+  let hrefMatch: RegExpExecArray | null;
+  while ((hrefMatch = hrefRe.exec(html)) !== null) {
+    const rawUrl = hrefMatch[1];
+    if (!rawUrl) continue;
+    try {
+      if (new URL(rawUrl).hostname === origin) insecure.add(rawUrl);
+    } catch {
+      // ignore malformed URLs
+    }
+  }
+  for (const url of [...insecure].slice(0, 10)) {
+    push("insecure_internal_link", "warning", "Internal link uses http:// instead of https://", url);
+  }
+
+  return issues;
 }
 
 function extractLinks(html: string, pageUrl: string): FoundLink[] {
@@ -119,6 +248,7 @@ export async function crawlSite(domain: string): Promise<CrawlResult> {
   const queue: string[] = [startUrl];
   const visited = new Set<string>();
   const found = new Map<string, FoundLink>();
+  const seoIssues: SeoIssue[] = [];
 
   while (queue.length > 0 && visited.size < MAX_PAGES) {
     const pageUrl = queue.shift()!;
@@ -138,6 +268,8 @@ export async function crawlSite(domain: string): Promise<CrawlResult> {
       }
       continue;
     }
+
+    seoIssues.push(...extractSeoIssues(html, pageUrl, origin));
 
     for (const link of extractLinks(html, pageUrl)) {
       if (!found.has(link.targetUrl) && found.size < MAX_LINKS) {
@@ -162,7 +294,12 @@ export async function crawlSite(domain: string): Promise<CrawlResult> {
     for (const result of results) if (result) broken.push(result);
   }
 
-  return { pagesScanned: visited.size, linksChecked: links.length, broken };
+  return {
+    pagesScanned: visited.size,
+    linksChecked: links.length,
+    broken,
+    seoIssues,
+  };
 }
 
 /** Re-test a single URL. Returns null when it is healthy again. */
