@@ -55,11 +55,13 @@ function Dashboard() {
 
   const fetchWebsites = useServerFn(listWebsites);
   const fetchLinks = useServerFn(listBrokenLinks);
+  const fetchSeoIssues = useServerFn(listSeoIssues);
   const runScan = useServerFn(scanWebsite);
   const removeLink = useServerFn(deleteBrokenLink);
   const recheckLink = useServerFn(recheckBrokenLink);
   const removeSite = useServerFn(deleteWebsite);
   const fixLink = useServerFn(fixBrokenLink);
+  const removeSeoIssue = useServerFn(deleteSeoIssue);
 
   async function handleFixLink(id: string, replacementUrl: string) {
     await fixLink({ data: { id, replacementUrl } });
@@ -154,6 +156,19 @@ function Dashboard() {
     }
   }
 
+  async function handleDeleteSeoIssue(id: string) {
+    setBusyLinkId(id);
+    try {
+      await removeSeoIssue({ data: { id } });
+      toast.success("SEO issue dismissed");
+      refresh();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not dismiss issue");
+    } finally {
+      setBusyLinkId(null);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-muted/40">
       <header className="sticky top-0 z-10 border-b bg-background/95 backdrop-blur">
@@ -223,11 +238,13 @@ function Dashboard() {
               />
               <BrokenLinksTable
                 links={links}
-                loading={linksQuery.isLoading || authLoading}
+                seoIssues={seoIssues}
+                loading={linksQuery.isLoading || seoIssuesQuery.isLoading || authLoading}
                 domainFilter={selectedDomain}
                 onDelete={(id) => void handleDeleteLink(id)}
                 onRecheck={(id) => void handleRecheckLink(id)}
                 onFix={handleFixLink}
+                onDeleteSeoIssue={(id) => void handleDeleteSeoIssue(id)}
                 busyId={busyLinkId}
               />
             </div>
