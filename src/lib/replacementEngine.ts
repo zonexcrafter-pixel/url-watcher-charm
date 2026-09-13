@@ -66,19 +66,20 @@ function levenshtein(a: string, b: string): number {
   if (a === b) return 0;
   if (a.length === 0) return b.length;
   if (b.length === 0) return a.length;
-  let prev = Array.from({ length: b.length + 1 }, (_, i) => i);
+  let prev: number[] = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
-    const curr = [i];
+    const curr: number[] = [i];
     for (let j = 1; j <= b.length; j++) {
+      const sub = prev[j - 1] ?? 0;
       curr[j] = Math.min(
-        prev[j] + 1,
-        curr[j - 1] + 1,
-        prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1),
+        (prev[j] ?? 0) + 1,
+        (curr[j - 1] ?? 0) + 1,
+        sub + (a[i - 1] === b[j - 1] ? 0 : 1),
       );
     }
     prev = curr;
   }
-  return prev[b.length];
+  return prev[b.length] ?? 0;
 }
 
 /** Normalized string similarity 0-1 based on edit distance. */
