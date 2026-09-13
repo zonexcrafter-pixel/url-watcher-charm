@@ -210,6 +210,15 @@ export function IssueFixModal({
     setCopied(false);
     setLocalState("open");
     setVerifyNote(null);
+    setVerifying(false);
+    setVerifyFailure(null);
+    const initial =
+      target?.kind === "link"
+        ? target.link.issue_state
+        : target?.kind === "seo"
+          ? target.issue.issue_state
+          : "detected";
+    setLifecycle(initial as IssueLifecycleState);
   }, [suggestion, target]);
 
   const problem = useMemo(() => {
