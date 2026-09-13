@@ -47,6 +47,8 @@ export interface BrokenLinkRow {
   state_updated_at: string;
   verified_at: string | null;
   verified_status: number | null;
+  is_redirect: boolean;
+  redirect_target: string | null;
 }
 
 export interface SeoIssueRow {
@@ -104,7 +106,7 @@ export const listBrokenLinks = createServerFn({ method: "GET" })
     const { data, error } = await context.supabase
       .from("broken_links")
       .select(
-        "id, website_id, source_url, target_url, anchor_text, http_status, error_type, detected_at, replacement_url, fixed_at, issue_state, state_updated_at, verified_at, verified_status, websites(domain)",
+        "id, website_id, source_url, target_url, anchor_text, http_status, error_type, detected_at, replacement_url, fixed_at, issue_state, state_updated_at, verified_at, verified_status, is_redirect, redirect_target, websites(domain)",
       )
       .order("detected_at", { ascending: false });
     if (error) throw new Error(error.message);
