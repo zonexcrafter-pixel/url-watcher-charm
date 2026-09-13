@@ -189,6 +189,8 @@ export function classify(status: number | null): string {
 }
 
 async function timedFetch(url: string, init: RequestInit = {}) {
+  // SSRF guardrail: every outbound request is validated before dispatch.
+  assertUrlAllowed(url);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
