@@ -372,6 +372,9 @@ export function BrokenLinksTable({
                       <Badge variant="outline" className={meta.className}>
                         {meta.label}
                       </Badge>
+                      <Badge variant="outline" className={stateBadge(issue.issue_state).className}>
+                        {stateBadge(issue.issue_state).label}
+                      </Badge>
                       <span className="text-xs text-muted-foreground">
                         {row.domain} · {formatRelative(issue.detected_at)}
                       </span>
