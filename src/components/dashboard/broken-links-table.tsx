@@ -24,27 +24,28 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   ERROR_TYPE_LABELS,
   formatRelative,
   statusMeta,
   type BrokenLinkRow,
 } from "@/lib/monitor-data";
 import { type SeoIssueRow } from "@/lib/monitor.functions";
+import {
+  SEVERITY_BADGE,
+  SEVERITY_LABEL,
+  SEVERITY_ORDER,
+  linkSeverity,
+  seoIssueSeverity,
+  type Severity,
+} from "@/lib/healthScore";
 
-type Tab = "all" | "links" | "seo";
-
-const TABS: { value: Tab; label: string }[] = [
-  { value: "all", label: "All Issues" },
-  { value: "links", label: "Broken Links (404)" },
-  { value: "seo", label: "SEO Fixes" },
+const SEVERITY_FILTERS: { value: Severity | "all"; label: string }[] = [
+  { value: "all", label: "All" },
+  { value: "critical", label: "Critical" },
+  { value: "high", label: "High" },
+  { value: "medium", label: "Medium" },
+  { value: "low", label: "Low" },
+  { value: "fixed", label: "Fixed" },
 ];
 
 const YELLOW_BADGE = "bg-yellow-500/10 text-yellow-700 border-yellow-500/40 dark:text-yellow-400";
@@ -95,8 +96,22 @@ const SEO_META: Record<string, { label: string; className: string; tip: string }
 };
 
 type Row =
-  | { kind: "link"; id: string; domain: string; detected_at: string; link: BrokenLinkRow }
-  | { kind: "seo"; id: string; domain: string; detected_at: string; issue: SeoIssueRow };
+  | {
+      kind: "link";
+      id: string;
+      domain: string;
+      detected_at: string;
+      severity: Severity;
+      link: BrokenLinkRow;
+    }
+  | {
+      kind: "seo";
+      id: string;
+      domain: string;
+      detected_at: string;
+      severity: Severity;
+      issue: SeoIssueRow;
+    };
 
 function csvEscape(value: string | null): string {
   const v = value ?? "";
@@ -156,7 +171,7 @@ export function BrokenLinksTable({
   busyId: string | null;
 }) {
   const [query, setQuery] = useState("");
-  const [tab, setTab] = useState<Tab>("all");
+  const [severityFilter, setSeverityFilter] = useState<Severity | "all">("all");
   const [fixTarget, setFixTarget] = useState<BrokenLinkRow | null>(null);
   const [replacementUrl, setReplacementUrl] = useState("");
   const [fixError, setFixError] = useState<string | null>(null);
@@ -169,6 +184,7 @@ export function BrokenLinksTable({
       id: link.id,
       domain: link.domain,
       detected_at: link.detected_at,
+      severity: linkSeverity(link),
       link,
     }));
     const seoRows: Row[] = seoIssues.map((issue) => ({
@@ -176,19 +192,22 @@ export function BrokenLinksTable({
       id: issue.id,
       domain: issue.domain,
       detected_at: issue.detected_at,
+      severity: seoIssueSeverity(issue),
       issue,
     }));
-    return [...linkRows, ...seoRows].sort(
-      (a, b) => new Date(b.detected_at).getTime() - new Date(a.detected_at).getTime(),
-    );
+    // Prioritized: critical first, then high → low → fixed, newest first within a tier.
+    return [...linkRows, ...seoRows].sort((a, b) => {
+      const tier = SEVERITY_ORDER.indexOf(a.severity) - SEVERITY_ORDER.indexOf(b.severity);
+      if (tier !== 0) return tier;
+      return new Date(b.detected_at).getTime() - new Date(a.detected_at).getTime();
+    });
   }, [links, seoIssues]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return allRows.filter((row) => {
       if (domainFilter && row.domain !== domainFilter) return false;
-      if (tab === "links" && row.kind !== "link") return false;
-      if (tab === "seo" && row.kind !== "seo") return false;
+      if (severityFilter !== "all" && row.severity !== severityFilter) return false;
       if (!q) return true;
       if (row.kind === "link") {
         const l = row.link;
@@ -205,7 +224,7 @@ export function BrokenLinksTable({
         (i.detail ?? "").toLowerCase().includes(q)
       );
     });
-  }, [allRows, query, tab, domainFilter]);
+  }, [allRows, query, severityFilter, domainFilter]);
 
   async function submitFix() {
     if (!fixTarget) return;
@@ -242,8 +261,8 @@ export function BrokenLinksTable({
             </Button>
           </div>
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="relative flex-1">
+        <div className="flex flex-col gap-2">
+          <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder="Search URLs, anchor text, or issues…"
@@ -252,227 +271,201 @@ export function BrokenLinksTable({
               className="pl-9"
             />
           </div>
-          <div className="flex gap-1.5">
-            {TABS.map((t) => (
+          <div className="flex flex-wrap gap-1.5">
+            {SEVERITY_FILTERS.map((f) => (
               <Button
-                key={t.value}
-                variant={tab === t.value ? "default" : "outline"}
+                key={f.value}
+                variant={severityFilter === f.value ? "default" : "outline"}
                 size="sm"
                 className="rounded-full"
-                onClick={() => setTab(t.value)}
+                onClick={() => setSeverityFilter(f.value)}
               >
-                {t.label}
+                {f.label}
               </Button>
             ))}
           </div>
         </div>
       </CardHeader>
-      <CardContent className="p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead className="pl-6">Status</TableHead>
-              <TableHead>Page / Source URL</TableHead>
-              <TableHead>Issue Details</TableHead>
-              <TableHead>Domain</TableHead>
-              <TableHead className="text-right">Detected</TableHead>
-              <TableHead className="pr-6 text-right">Actions</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {loading ? (
-              <TableRow>
-                <TableCell colSpan={6} className="h-32 text-center">
-                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                    <Loader2 className="h-5 w-5 animate-spin" />
-                    <span className="text-sm">Loading issues…</span>
+      <CardContent className="space-y-3">
+        {loading ? (
+          <div className="flex h-32 flex-col items-center justify-center gap-2 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span className="text-sm">Loading issues…</span>
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="flex h-32 flex-col items-center justify-center gap-2 text-muted-foreground">
+            <Link2Off className="h-5 w-5" />
+            <span className="text-sm">No issues found. Scan a site to check for problems.</span>
+          </div>
+        ) : (
+          rows.map((row) => {
+            const busy = busyId === row.id;
+            const criticalCard =
+              row.severity === "critical" ? "border-red-500/50 bg-red-500/5" : "";
+
+            if (row.kind === "seo") {
+              const issue = row.issue;
+              const meta = SEO_META[issue.type] ?? {
+                label: "SEO Issue",
+                className: YELLOW_BADGE,
+                tip: "",
+              };
+              return (
+                <div
+                  key={row.id}
+                  className={`flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-start sm:justify-between ${criticalCard}`}
+                >
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge variant="outline" className={SEVERITY_BADGE[row.severity]}>
+                        {SEVERITY_LABEL[row.severity]}
+                      </Badge>
+                      <Badge variant="outline" className={meta.className}>
+                        {meta.label}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {row.domain} · {formatRelative(issue.detected_at)}
+                      </span>
+                    </div>
+                    <p className="text-sm font-medium">{issue.message}</p>
+                    <p className="truncate text-xs text-muted-foreground" title={issue.url}>
+                      {issue.url}
+                    </p>
+                    {issue.detail && (
+                      <p
+                        className="truncate text-xs text-muted-foreground"
+                        title={issue.detail}
+                      >
+                        {issue.detail}
+                      </p>
+                    )}
                   </div>
-                </TableCell>
-              </TableRow>
-            ) : rows.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} className="h-32 text-center">
-                  <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                    <Link2Off className="h-5 w-5" />
-                    <span className="text-sm">
-                      No issues found. Scan a site to check for problems.
+                  <div className="flex shrink-0 gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={busy}
+                      onClick={() => setSeoTarget(issue)}
+                    >
+                      <Lightbulb className="h-3 w-3" />
+                      <span className="ml-1 hidden sm:inline">SEO Fix</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                      disabled={busy}
+                      onClick={() => onDeleteSeoIssue(issue.id)}
+                    >
+                      <Trash2 className="h-3 w-3" />
+                      <span className="ml-1 hidden sm:inline">Delete</span>
+                    </Button>
+                  </div>
+                </div>
+              );
+            }
+
+            const link = row.link;
+            const meta = statusMeta(link.http_status);
+            const fixed = link.fixed_at !== null;
+            return (
+              <div
+                key={row.id}
+                className={`flex flex-col gap-3 rounded-lg border p-4 sm:flex-row sm:items-start sm:justify-between ${criticalCard}`}
+              >
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant="outline" className={SEVERITY_BADGE[row.severity]}>
+                      {SEVERITY_LABEL[row.severity]}
+                    </Badge>
+                    {fixed ? (
+                      <Badge
+                        variant="outline"
+                        className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 dark:text-emerald-400"
+                      >
+                        Fixed / Redirected
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className={meta.className}>
+                        {meta.label}
+                      </Badge>
+                    )}
+                    <span className="text-xs text-muted-foreground">
+                      {row.domain} · {formatRelative(link.detected_at)}
                     </span>
                   </div>
-                </TableCell>
-              </TableRow>
-            ) : (
-              rows.map((row) => {
-                const busy = busyId === row.id;
-                if (row.kind === "seo") {
-                  const issue = row.issue;
-                  const meta = SEO_META[issue.type] ?? {
-                    label: "SEO Issue",
-                    className: YELLOW_BADGE,
-                    tip: "",
-                  };
-                  return (
-                    <TableRow key={row.id}>
-                      <TableCell className="pl-6">
-                        <Badge variant="outline" className={meta.className}>
-                          {meta.label}
-                        </Badge>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          {issue.severity === "error" ? "Error" : "Warning"}
-                        </div>
-                      </TableCell>
-                      <TableCell className="max-w-64">
-                        <div className="truncate text-sm" title={issue.url}>
-                          {issue.url}
-                        </div>
-                        <div className="truncate text-xs text-muted-foreground">
-                          {issue.message}
-                        </div>
-                      </TableCell>
-                      <TableCell className="max-w-64">
-                        <div
-                          className="truncate text-sm text-muted-foreground"
-                          title={issue.detail ?? issue.message}
-                        >
-                          {issue.detail ?? issue.message}
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">{row.domain}</TableCell>
-                      <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
-                        {formatRelative(issue.detected_at)}
-                      </TableCell>
-                      <TableCell className="pr-6 text-right">
-                        <div className="flex justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            disabled={busy}
-                            onClick={() => setSeoTarget(issue)}
-                          >
-                            <Lightbulb className="h-3 w-3" />
-                            <span className="ml-1 hidden sm:inline">SEO Fix</span>
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs text-destructive hover:text-destructive"
-                            disabled={busy}
-                            onClick={() => onDeleteSeoIssue(issue.id)}
-                          >
-                            <Trash2 className="h-3 w-3" />
-                            <span className="ml-1 hidden sm:inline">Delete</span>
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                }
-
-                const link = row.link;
-                const meta = statusMeta(link.http_status);
-                const fixed = link.fixed_at !== null;
-                return (
-                  <TableRow key={row.id}>
-                    <TableCell className="pl-6">
-                      {fixed ? (
-                        <Badge
-                          variant="outline"
-                          className="bg-emerald-500/10 text-emerald-600 border-emerald-500/30 dark:text-emerald-400"
-                        >
-                          Fixed
-                        </Badge>
-                      ) : (
-                        <Badge variant="outline" className={meta.className}>
-                          {meta.label}
-                        </Badge>
-                      )}
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {fixed
-                          ? "Redirected"
-                          : (ERROR_TYPE_LABELS[link.error_type] ?? link.error_type)}
-                      </div>
-                    </TableCell>
-                    <TableCell className="max-w-64">
-                      <div className="truncate text-sm" title={link.source_url}>
-                        {link.source_url}
-                      </div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        “{link.anchor_text ?? "(no anchor text)"}”
-                      </div>
-                    </TableCell>
-                    <TableCell className="max-w-64">
-                      <a
-                        href={link.target_url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="group flex items-center gap-1 text-sm text-destructive hover:underline"
-                        title={link.target_url}
-                      >
-                        <span className="truncate">{link.target_url}</span>
-                        <ArrowUpRight className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
-                      </a>
-                      {fixed && link.replacement_url && (
-                        <a
-                          href={link.replacement_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="mt-0.5 block truncate text-xs text-emerald-600 hover:underline dark:text-emerald-400"
-                          title={link.replacement_url}
-                        >
-                          → {link.replacement_url}
-                        </a>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-sm text-muted-foreground">{row.domain}</TableCell>
-                    <TableCell className="text-right text-sm tabular-nums text-muted-foreground">
-                      {formatRelative(link.detected_at)}
-                    </TableCell>
-                    <TableCell className="pr-6 text-right">
-                      <div className="flex justify-end gap-1">
-                        {!fixed && (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            disabled={busy}
-                            onClick={() => {
-                              setFixTarget(link);
-                              setReplacementUrl(link.replacement_url ?? "");
-                              setFixError(null);
-                            }}
-                          >
-                            <Wrench className="h-3 w-3" />
-                            <span className="ml-1 hidden sm:inline">Fix Link</span>
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs"
-                          disabled={busy}
-                          onClick={() => onRecheck(link.id)}
-                        >
-                          <RefreshCw className={busy ? "h-3 w-3 animate-spin" : "h-3 w-3"} />
-                          <span className="ml-1 hidden sm:inline">Re-check</span>
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-7 px-2 text-xs text-destructive hover:text-destructive"
-                          disabled={busy}
-                          onClick={() => onDelete(link.id)}
-                        >
-                          <Trash2 className="h-3 w-3" />
-                          <span className="ml-1 hidden sm:inline">Delete</span>
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
-          </TableBody>
-        </Table>
+                  <p className="truncate text-sm font-medium" title={link.source_url}>
+                    {link.source_url}
+                  </p>
+                  <a
+                    href={link.target_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="group flex items-center gap-1 text-sm text-destructive hover:underline"
+                    title={link.target_url}
+                  >
+                    <span className="truncate">{link.target_url}</span>
+                    <ArrowUpRight className="h-3 w-3 shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
+                  </a>
+                  <p className="truncate text-xs text-muted-foreground">
+                    “{link.anchor_text ?? "(no anchor text)"}” ·{" "}
+                    {fixed ? "Redirected" : (ERROR_TYPE_LABELS[link.error_type] ?? link.error_type)}
+                  </p>
+                  {fixed && link.replacement_url && (
+                    <a
+                      href={link.replacement_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block truncate text-xs text-emerald-600 hover:underline dark:text-emerald-400"
+                      title={link.replacement_url}
+                    >
+                      → {link.replacement_url}
+                    </a>
+                  )}
+                </div>
+                <div className="flex shrink-0 gap-1">
+                  {!fixed && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={busy}
+                      onClick={() => {
+                        setFixTarget(link);
+                        setReplacementUrl(link.replacement_url ?? "");
+                        setFixError(null);
+                      }}
+                    >
+                      <Wrench className="h-3 w-3" />
+                      <span className="ml-1 hidden sm:inline">Fix Link</span>
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    disabled={busy}
+                    onClick={() => onRecheck(link.id)}
+                  >
+                    <RefreshCw className={busy ? "h-3 w-3 animate-spin" : "h-3 w-3"} />
+                    <span className="ml-1 hidden sm:inline">Re-check</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs text-destructive hover:text-destructive"
+                    disabled={busy}
+                    onClick={() => onDelete(link.id)}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                    <span className="ml-1 hidden sm:inline">Delete</span>
+                  </Button>
+                </div>
+              </div>
+            );
+          })
+        )}
       </CardContent>
 
       <Dialog
