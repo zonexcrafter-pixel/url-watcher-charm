@@ -168,6 +168,7 @@ export interface CrawlResult {
   linksChecked: number;
   broken: BrokenResult[];
   seoIssues: SeoIssue[];
+  pages: CrawlPageResult[];
 }
 
 export function normalizeDomain(input: string): string {
