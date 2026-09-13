@@ -431,6 +431,13 @@ export function BrokenLinksTable({
             const link = row.link;
             const meta = statusMeta(link.http_status);
             const fixed = link.fixed_at !== null;
+            const topCandidate = fixed
+              ? null
+              : (findReplacementCandidates(
+                  link.target_url,
+                  link.anchor_text ?? "",
+                  candidateUrls.map((url) => ({ url, title: "" })),
+                )[0] ?? null);
             return (
               <div
                 key={row.id}
@@ -453,6 +460,9 @@ export function BrokenLinksTable({
                         {meta.label}
                       </Badge>
                     )}
+                    <Badge variant="outline" className={stateBadge(link.issue_state).className}>
+                      {stateBadge(link.issue_state).label}
+                    </Badge>
                     <span className="text-xs text-muted-foreground">
                       {row.domain} · {formatRelative(link.detected_at)}
                     </span>
