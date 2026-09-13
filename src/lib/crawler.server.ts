@@ -6,10 +6,133 @@
 
 const USER_AGENT = "Mozilla/5.0 (compatible; LinkWatchBot/1.0; +https://linkwatch.app/bot)";
 
-const MAX_PAGES = 6;
+const MAX_DEPTH = 2;
+const MAX_PAGES = 100;
 const MAX_LINKS = 80;
-const CONCURRENCY = 8;
+const CONCURRENCY = 3;
 const TIMEOUT_MS = 8000;
+
+export interface CrawlPageResult {
+  url: string;
+  httpStatus: number | null;
+  responseTimeMs: number;
+  isAllowedByRobots: boolean;
+  rawHtml: string | null;
+  errorMessage: string | null;
+}
+
+/* ---------------- SSRF guardrails ---------------- */
+
+function isPrivateIpv4(hostname: string): boolean {
+  const parts = hostname.split(".");
+  if (parts.length !== 4) return false;
+  const octets = parts.map(Number);
+  if (octets.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return false;
+  const [a, b] = octets;
+  if (a === 10) return true; // 10.0.0.0/8
+  if (a === 172 && b! >= 16 && b! <= 31) return true; // 172.16.0.0/12
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16
+  if (a === 127) return true; // loopback
+  if (a === 169 && b === 254) return true; // link-local / cloud metadata
+  if (a === 0) return true; // 0.0.0.0/8
+  return false;
+}
+
+/** Reject localhost, private/reserved IPs, and non-HTTP(S) targets. Throws on blocked URLs. */
+export function assertUrlAllowed(rawUrl: string): URL {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error("Blocked: malformed URL");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`Blocked: scheme "${url.protocol}" is not allowed`);
+  }
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal")) {
+    throw new Error("Blocked: localhost targets are not allowed");
+  }
+  if (isPrivateIpv4(host)) {
+    throw new Error("Blocked: private IP addresses are not allowed");
+  }
+  if (host === "::1" || host === "::") {
+    throw new Error("Blocked: loopback targets are not allowed");
+  }
+  if (/^(fe80|fc|fd)/i.test(host.replace(/:/g, ""))) {
+    throw new Error("Blocked: private IPv6 ranges are not allowed");
+  }
+  return url;
+}
+
+/* ---------------- Robots.txt compliance ---------------- */
+
+/**
+ * Fetch a domain's /robots.txt and evaluate a path against its `User-agent: *`
+ * rules using longest-match Allow/Disallow semantics.
+ */
+export async function checkRobotsPermission(domain: string, path: string): Promise<boolean> {
+  let text: string;
+  try {
+    const res = await timedFetch(`https://${normalizeDomain(domain)}/robots.txt`, { method: "GET" });
+    if (!res.ok) return true; // no robots.txt → allowed
+    text = await res.text();
+  } catch {
+    return true; // unreachable robots.txt → allowed
+  }
+
+  // Parse groups; only `User-agent: *` groups apply to us.
+  const groups: { applies: boolean; rules: { type: "allow" | "disallow"; path: string }[] }[] = [];
+  let current: (typeof groups)[number] | null = null;
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.replace(/#.*$/, "").trim();
+    if (!line) continue;
+    const m = /^(user-agent|allow|disallow)\s*:\s*(.*)$/i.exec(line);
+    if (!m) continue;
+    const field = m[1]!.toLowerCase();
+    const value = (m[2] ?? "").trim();
+    if (field === "user-agent") {
+      if (!current || current.rules.length > 0) {
+        current = { applies: false, rules: [] };
+        groups.push(current);
+      }
+      if (value === "*") current.applies = true;
+    } else if (current && current.applies) {
+      current.rules.push({ type: field as "allow" | "disallow", path: value });
+    }
+  }
+
+  let best: { type: "allow" | "disallow"; length: number } | null = null;
+  for (const group of groups) {
+    if (!group.applies) continue;
+    for (const rule of group.rules) {
+      if (rule.path === "") continue;
+      if (path.startsWith(rule.path) && rule.path.length >= (best?.length ?? -1)) {
+        best = { type: rule.type, length: rule.path.length };
+      }
+    }
+  }
+  return best ? best.type === "allow" : true;
+}
+
+/* ---------------- Concurrency limiter ---------------- */
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]!);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 
 export interface FoundLink {
   sourceUrl: string;
