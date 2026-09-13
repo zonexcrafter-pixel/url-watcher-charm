@@ -183,6 +183,9 @@ export function IssueFixModal({
   const [copied, setCopied] = useState(false);
   const [localState, setLocalState] = useState<"open" | "fixed" | "verified">("open");
   const [verifyNote, setVerifyNote] = useState<string | null>(null);
+  const [lifecycle, setLifecycle] = useState<IssueLifecycleState>("detected");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyFailure, setVerifyFailure] = useState<string | null>(null);
 
   const updateIssueState = useServerFn(setIssueState);
 
