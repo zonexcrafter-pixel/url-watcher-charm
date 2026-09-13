@@ -32,6 +32,7 @@ import {
 } from "@/lib/monitor-data";
 import { type SeoIssueRow } from "@/lib/monitor.functions";
 import { IssueFixModal, type IssueFixTarget } from "@/components/IssueFixModal";
+import { findReplacementCandidates } from "@/lib/replacementEngine";
 import {
   SEVERITY_BADGE,
   SEVERITY_LABEL,
@@ -52,6 +53,40 @@ const SEVERITY_FILTERS: { value: Severity | "all"; label: string }[] = [
 
 const YELLOW_BADGE = "bg-yellow-500/10 text-yellow-700 border-yellow-500/40 dark:text-yellow-400";
 const RED_BADGE = "bg-red-500/10 text-red-600 border-red-500/40 dark:text-red-400";
+
+/** Lifecycle state badges shown on every issue card. */
+const STATE_BADGE: Record<string, { label: string; className: string }> = {
+  detected: { label: "Detected", className: "bg-muted text-muted-foreground border-border" },
+  suggested: {
+    label: "Suggested",
+    className: "bg-blue-500/10 text-blue-600 border-blue-500/40 dark:text-blue-400",
+  },
+  fix_proposed: {
+    label: "Fix Proposed",
+    className: "bg-blue-500/10 text-blue-600 border-blue-500/40 dark:text-blue-400",
+  },
+  approved: {
+    label: "Approved",
+    className: "bg-indigo-500/10 text-indigo-600 border-indigo-500/40 dark:text-indigo-400",
+  },
+  awaiting_fix: {
+    label: "Awaiting Fix",
+    className: "bg-amber-500/10 text-amber-600 border-amber-500/40 dark:text-amber-400",
+  },
+  fixed: {
+    label: "Fixed",
+    className: "bg-emerald-500/10 text-emerald-600 border-emerald-500/40 dark:text-emerald-400",
+  },
+  verified: {
+    label: "Verified",
+    className: "bg-emerald-500/10 text-emerald-700 border-emerald-500/50 dark:text-emerald-300",
+  },
+  ignored: { label: "Ignored", className: "bg-muted text-muted-foreground border-border" },
+};
+
+function stateBadge(state: string | null | undefined) {
+  return STATE_BADGE[state ?? "detected"] ?? STATE_BADGE.detected!;
+}
 
 /** Short label + badge color for each SEO issue type. */
 const SEO_META: Record<string, { label: string; className: string; tip: string }> = {
