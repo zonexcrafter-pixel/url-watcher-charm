@@ -29,6 +29,13 @@
       "when": 1789280913261,
       "tag": "0003_add_issue_state_lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1789288371607,
+      "tag": "0004_create_scans_and_pages",
+      "breakpoints": true
     }
   ]
 }

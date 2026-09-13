@@ -22,8 +22,11 @@ export type Database = {
           fixed_at: string | null
           http_status: number | null
           id: string
+          is_redirect: boolean
           issue_state: string
+          redirect_target: string | null
           replacement_url: string | null
+          scan_id: string | null
           source_url: string
           state_updated_at: string
           target_url: string
@@ -38,8 +41,11 @@ export type Database = {
           fixed_at?: string | null
           http_status?: number | null
           id?: string
+          is_redirect?: boolean
           issue_state?: string
+          redirect_target?: string | null
           replacement_url?: string | null
+          scan_id?: string | null
           source_url: string
           state_updated_at?: string
           target_url: string
@@ -54,8 +60,11 @@ export type Database = {
           fixed_at?: string | null
           http_status?: number | null
           id?: string
+          is_redirect?: boolean
           issue_state?: string
+          redirect_target?: string | null
           replacement_url?: string | null
+          scan_id?: string | null
           source_url?: string
           state_updated_at?: string
           target_url?: string
@@ -65,7 +74,133 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "broken_links_scan_id_fkey"
+            columns: ["scan_id"]
+            isOneToOne: false
+            referencedRelation: "scans"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "broken_links_website_id_fkey"
+            columns: ["website_id"]
+            isOneToOne: false
+            referencedRelation: "websites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      pages: {
+        Row: {
+          canonical_url: string | null
+          created_at: string
+          error_message: string | null
+          h1_count: number | null
+          http_status: number | null
+          id: string
+          is_allowed_by_robots: boolean
+          meta_description: string | null
+          redirect_count: number
+          redirected_to: string | null
+          response_time_ms: number | null
+          scan_id: string
+          title: string | null
+          url: string
+          website_id: string
+        }
+        Insert: {
+          canonical_url?: string | null
+          created_at?: string
+          error_message?: string | null
+          h1_count?: number | null
+          http_status?: number | null
+          id?: string
+          is_allowed_by_robots?: boolean
+          meta_description?: string | null
+          redirect_count?: number
+          redirected_to?: string | null
+          response_time_ms?: number | null
+          scan_id: string
+          title?: string | null
+          url: string
+          website_id: string
+        }
+        Update: {
+          canonical_url?: string | null
+          created_at?: string
+          error_message?: string | null
+          h1_count?: number | null
+          http_status?: number | null
+          id?: string
+          is_allowed_by_robots?: boolean
+          meta_description?: string | null
+          redirect_count?: number
+          redirected_to?: string | null
+          response_time_ms?: number | null
+          scan_id?: string
+          title?: string | null
+          url?: string
+          website_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "pages_scan_id_fkey"
+            columns: ["scan_id"]
+            isOneToOne: false
+            referencedRelation: "scans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "pages_website_id_fkey"
+            columns: ["website_id"]
+            isOneToOne: false
+            referencedRelation: "websites"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scans: {
+        Row: {
+          broken_count: number
+          created_at: string
+          error_message: string | null
+          finished_at: string | null
+          id: string
+          links_checked: number
+          pages_scanned: number
+          seo_issue_count: number
+          started_at: string
+          status: string
+          website_id: string
+        }
+        Insert: {
+          broken_count?: number
+          created_at?: string
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          links_checked?: number
+          pages_scanned?: number
+          seo_issue_count?: number
+          started_at?: string
+          status?: string
+          website_id: string
+        }
+        Update: {
+          broken_count?: number
+          created_at?: string
+          error_message?: string | null
+          finished_at?: string | null
+          id?: string
+          links_checked?: number
+          pages_scanned?: number
+          seo_issue_count?: number
+          started_at?: string
+          status?: string
+          website_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scans_website_id_fkey"
             columns: ["website_id"]
             isOneToOne: false
             referencedRelation: "websites"
@@ -80,6 +215,7 @@ export type Database = {
           id: string
           issue_state: string
           message: string
+          scan_id: string | null
           severity: string
           state_updated_at: string
           type: string
@@ -93,6 +229,7 @@ export type Database = {
           id?: string
           issue_state?: string
           message: string
+          scan_id?: string | null
           severity: string
           state_updated_at?: string
           type: string
@@ -106,6 +243,7 @@ export type Database = {
           id?: string
           issue_state?: string
           message?: string
+          scan_id?: string | null
           severity?: string
           state_updated_at?: string
           type?: string
@@ -114,6 +252,13 @@ export type Database = {
           website_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "seo_issues_scan_id_fkey"
+            columns: ["scan_id"]
+            isOneToOne: false
+            referencedRelation: "scans"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "seo_issues_website_id_fkey"
             columns: ["website_id"]
