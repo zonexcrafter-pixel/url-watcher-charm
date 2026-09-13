@@ -144,16 +144,48 @@ export const scanWebsite = createServerFn({ method: "POST" })
       .single();
     if (siteError || !site) throw new Error(siteError?.message ?? "Could not save website");
 
+    // Every scan run is its own row; pages/links/issues hang off it.
+    const { data: scan, error: scanError } = await supabase
+      .from("scans")
+      .insert({ website_id: site.id, status: "running" })
+      .select("id")
+      .single();
+    if (scanError || !scan) throw new Error(scanError?.message ?? "Could not start scan");
+
     try {
       const result = await crawlSite(data.domain);
 
+      // Replace the previous truth for this site with this run's findings.
       await supabase.from("broken_links").delete().eq("website_id", site.id);
       await supabase.from("seo_issues").delete().eq("website_id", site.id);
+      await supabase.from("pages").delete().eq("website_id", site.id);
+
+      if (result.pages.length > 0) {
+        const { error: pageError } = await supabase.from("pages").insert(
+          result.pages.map((page) => ({
+            scan_id: scan.id,
+            website_id: site.id,
+            url: page.url,
+            http_status: page.httpStatus,
+            response_time_ms: page.responseTimeMs,
+            title: page.title,
+            meta_description: page.metaDescription,
+            h1_count: page.h1Count,
+            canonical_url: page.canonicalUrl,
+            is_allowed_by_robots: page.isAllowedByRobots,
+            redirected_to: page.redirectedTo,
+            redirect_count: page.redirectCount,
+            error_message: page.errorMessage,
+          })),
+        );
+        if (pageError) throw new Error(pageError.message);
+      }
 
       if (result.seoIssues.length > 0) {
         const { error: seoError } = await supabase.from("seo_issues").insert(
           result.seoIssues.map((issue) => ({
             website_id: site.id,
+            scan_id: scan.id,
             type: issue.type,
             url: issue.url,
             severity: issue.severity,
@@ -164,43 +196,98 @@ export const scanWebsite = createServerFn({ method: "POST" })
         if (seoError) throw new Error(seoError.message);
       }
 
-      if (result.broken.length > 0) {
-        const { error: insertError } = await supabase.from("broken_links").insert(
-          result.broken.map((link) => ({
-            website_id: site.id,
-            source_url: link.sourceUrl,
-            target_url: link.targetUrl,
-            anchor_text: link.anchorText,
-            http_status: link.httpStatus,
-            error_type: link.errorType,
-          })),
-        );
+      // Hard link errors and 30x redirects are stored together but flagged apart.
+      const linkRows = [...result.broken, ...result.redirects].map((link) => ({
+        website_id: site.id,
+        scan_id: scan.id,
+        source_url: link.sourceUrl,
+        target_url: link.targetUrl,
+        anchor_text: link.anchorText,
+        http_status: link.httpStatus,
+        error_type: link.errorType,
+        is_redirect: link.isRedirect,
+        redirect_target: link.redirectTarget,
+      }));
+      if (linkRows.length > 0) {
+        const { error: insertError } = await supabase.from("broken_links").insert(linkRows);
         if (insertError) throw new Error(insertError.message);
       }
+
+      const finishedAt = new Date().toISOString();
+      await supabase
+        .from("scans")
+        .update({
+          status: "complete",
+          pages_scanned: result.pagesScanned,
+          links_checked: result.linksChecked,
+          broken_count: result.broken.length,
+          seo_issue_count: result.seoIssues.length,
+          finished_at: finishedAt,
+        })
+        .eq("id", scan.id);
 
       await supabase
         .from("websites")
         .update({
           status: "active",
-          last_scanned_at: new Date().toISOString(),
+          last_scanned_at: finishedAt,
           pages_scanned: result.pagesScanned,
         })
         .eq("id", site.id);
 
       return {
         websiteId: site.id,
+        scanId: scan.id,
         domain: site.domain,
         pagesScanned: result.pagesScanned,
         linksChecked: result.linksChecked,
         brokenCount: result.broken.length,
+        redirectCount: result.redirects.length,
+        seoIssueCount: result.seoIssues.length,
       };
     } catch (error) {
+      const message = error instanceof Error ? error.message : "Scan failed. Please try again.";
+      await supabase
+        .from("scans")
+        .update({ status: "error", error_message: message, finished_at: new Date().toISOString() })
+        .eq("id", scan.id);
       await supabase
         .from("websites")
         .update({ status: "error", last_scanned_at: new Date().toISOString() })
         .eq("id", site.id);
-      throw new Error(error instanceof Error ? error.message : "Scan failed. Please try again.");
+      throw new Error(message);
     }
+  });
+
+export interface PageRow {
+  id: string;
+  website_id: string;
+  url: string;
+  http_status: number | null;
+  response_time_ms: number | null;
+  title: string | null;
+  meta_description: string | null;
+  h1_count: number | null;
+  canonical_url: string | null;
+  redirected_to: string | null;
+  redirect_count: number;
+  is_allowed_by_robots: boolean;
+  error_message: string | null;
+  created_at: string;
+}
+
+/** Every page recorded by the most recent crawl, newest first. */
+export const listPages = createServerFn({ method: "GET" })
+  .middleware([requireSupabaseAuth])
+  .handler(async ({ context }): Promise<PageRow[]> => {
+    const { data, error } = await context.supabase
+      .from("pages")
+      .select(
+        "id, website_id, url, http_status, response_time_ms, title, meta_description, h1_count, canonical_url, redirected_to, redirect_count, is_allowed_by_robots, error_message, created_at",
+      )
+      .order("created_at", { ascending: false });
+    if (error) throw new Error(error.message);
+    return (data ?? []) as PageRow[];
   });
 
 export const deleteBrokenLink = createServerFn({ method: "POST" })
