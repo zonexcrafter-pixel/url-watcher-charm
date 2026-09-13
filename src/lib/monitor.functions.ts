@@ -69,7 +69,9 @@ export const listSeoIssues = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<SeoIssueRow[]> => {
     const { data, error } = await context.supabase
       .from("seo_issues")
-      .select("id, website_id, type, url, severity, message, detail, detected_at, websites(domain)")
+      .select(
+        "id, website_id, type, url, severity, message, detail, detected_at, issue_state, state_updated_at, verified_at, websites(domain)",
+      )
       .order("detected_at", { ascending: false });
     if (error) throw new Error(error.message);
     return (data ?? []).map((row) => {
@@ -102,7 +104,7 @@ export const listBrokenLinks = createServerFn({ method: "GET" })
     const { data, error } = await context.supabase
       .from("broken_links")
       .select(
-        "id, website_id, source_url, target_url, anchor_text, http_status, error_type, detected_at, replacement_url, fixed_at, websites(domain)",
+        "id, website_id, source_url, target_url, anchor_text, http_status, error_type, detected_at, replacement_url, fixed_at, issue_state, state_updated_at, verified_at, verified_status, websites(domain)",
       )
       .order("detected_at", { ascending: false });
     if (error) throw new Error(error.message);
@@ -251,12 +253,54 @@ export const fixBrokenLink = createServerFn({ method: "POST" })
     return { id, replacementUrl };
   })
   .handler(async ({ data, context }) => {
+    const now = new Date().toISOString();
     const { error } = await context.supabase
       .from("broken_links")
       .update({
         replacement_url: data.replacementUrl,
-        fixed_at: new Date().toISOString(),
+        fixed_at: now,
+        issue_state: "fixed",
+        state_updated_at: now,
       })
+      .eq("id", data.id);
+    if (error) throw new Error(error.message);
+
+    // Verification engine: re-test the replacement URL right away.
+    const { recheckUrl } = await import("./crawler.server");
+    const failure = await recheckUrl(data.replacementUrl);
+    if (failure) {
+      return { ok: true, verified: false, httpStatus: failure.httpStatus };
+    }
+
+    const verifiedAt = new Date().toISOString();
+    await context.supabase
+      .from("broken_links")
+      .update({
+        issue_state: "verified",
+        state_updated_at: verifiedAt,
+        verified_at: verifiedAt,
+        verified_status: 200,
+      })
+      .eq("id", data.id);
+    return { ok: true, verified: true, httpStatus: 200 };
+  });
+
+/** Move an issue to a new lifecycle state (e.g. suggested, fix_proposed, ignored). */
+export const setIssueState = createServerFn({ method: "POST" })
+  .middleware([requireSupabaseAuth])
+  .inputValidator((input: { id: string; kind: "link" | "seo"; state: IssueState }) => {
+    const id = String(input?.id ?? "");
+    const kind = input?.kind === "seo" ? ("seo" as const) : ("link" as const);
+    const state = input?.state;
+    if (!ISSUE_STATES.includes(state)) throw new Error("Unknown issue state");
+    return { id, kind, state };
+  })
+  .handler(async ({ data, context }) => {
+    const now = new Date().toISOString();
+    const table = data.kind === "seo" ? "seo_issues" : "broken_links";
+    const { error } = await context.supabase
+      .from(table)
+      .update({ issue_state: data.state, state_updated_at: now })
       .eq("id", data.id);
     if (error) throw new Error(error.message);
     return { ok: true };

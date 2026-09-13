@@ -64,8 +64,16 @@ function Dashboard() {
   const removeSeoIssue = useServerFn(deleteSeoIssue);
 
   async function handleFixLink(id: string, replacementUrl: string) {
-    await fixLink({ data: { id, replacementUrl } });
-    toast.success("Replacement saved — link marked as Fixed / Redirected");
+    const result = await fixLink({ data: { id, replacementUrl } });
+    if (result.verified) {
+      toast.success("Fix Verified: 200 OK", {
+        description: "Health score updated — issue cleared from active problems.",
+      });
+    } else {
+      toast.warning("Replacement saved, but not verified", {
+        description: `The new URL returned ${result.httpStatus ?? "no response"}.`,
+      });
+    }
     refresh();
   }
 
