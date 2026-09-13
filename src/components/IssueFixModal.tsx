@@ -535,6 +535,75 @@ export function IssueFixModal({
             </TabsContent>
           </Tabs>
 
+          {/* Lifecycle actions: copy patch → awaiting_fix, verify on live site → verified */}
+          {(lifecycle === "approved" ||
+            lifecycle === "awaiting_fix" ||
+            lifecycle === "verifying" ||
+            lifecycle === "verified") && (
+            <section className="space-y-3 rounded-md border p-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Deployment workflow
+                </h3>
+                <Badge
+                  variant={
+                    lifecycle === "verified"
+                      ? "secondary"
+                      : lifecycle === "verifying"
+                        ? "default"
+                        : "outline"
+                  }
+                  className="capitalize"
+                >
+                  {lifecycle.replace(/_/g, " ")}
+                </Badge>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  disabled={saving || verifying || !activePatch || lifecycle === "verified"}
+                  onClick={() => void copyPatchCode()}
+                >
+                  {copied ? (
+                    <Check className="mr-1.5 h-4 w-4" />
+                  ) : (
+                    <Copy className="mr-1.5 h-4 w-4" />
+                  )}
+                  {copied ? "Copied" : "Copy Patch Code"}
+                </Button>
+                {isLink && (
+                  <Button
+                    className="flex-1"
+                    disabled={
+                      saving ||
+                      verifying ||
+                      value.trim().length === 0 ||
+                      lifecycle === "verified" ||
+                      !canTransition(lifecycle, "verifying")
+                    }
+                    onClick={() => void verifyFix()}
+                  >
+                    {verifying ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-1.5 h-4 w-4" />
+                    )}
+                    {verifying ? "Verifying…" : "Verify Fix"}
+                  </Button>
+                )}
+              </div>
+              {verifyFailure && (
+                <p className="text-xs text-destructive">{verifyFailure}</p>
+              )}
+              {lifecycle === "verified" && verifyNote && (
+                <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  {verifyNote}
+                </p>
+              )}
+            </section>
+          )}
+
           {error && <p className="text-xs text-destructive">{error}</p>}
 
           {/* Action controls */}
