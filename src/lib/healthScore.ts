@@ -4,13 +4,20 @@ export type Severity = "critical" | "high" | "medium" | "low" | "fixed";
 
 export type Category = "Broken Links" | "Internal Linking" | "On-Page SEO" | "Technical SEO";
 
-/** Points deducted per open issue, by severity. Fixed issues deduct nothing. */
-export const SEVERITY_POINTS: Record<Exclude<Severity, "fixed">, number> = {
+/**
+ * LinkWatch Health Score — transparent weighted deduction model.
+ * Base score is 100; each open issue deducts points by severity.
+ * The score is clamped at 0. Fixed issues deduct nothing.
+ */
+export const HEALTH_SCORE_WEIGHTS: Record<Exclude<Severity, "fixed">, number> = {
   critical: 15,
   high: 8,
   medium: 3,
   low: 1,
-};
+} as const;
+
+/** @deprecated Use HEALTH_SCORE_WEIGHTS. */
+export const SEVERITY_POINTS = HEALTH_SCORE_WEIGHTS;
 
 export const SEVERITY_ORDER: Severity[] = ["critical", "high", "medium", "low", "fixed"];
 
@@ -78,6 +85,11 @@ export function seoIssueCategory(issue: SeoIssueRow): Category {
   }
 }
 
+export interface ScoreIssue {
+  severity: Severity;
+  category?: Category;
+}
+
 export interface CategoryScore {
   category: Category;
   score: number;
@@ -86,37 +98,32 @@ export interface CategoryScore {
 }
 
 export interface HealthScoreResult {
-  /** Overall site health, 0–100. */
+  /** Overall LinkWatch Health Score, 0–100. */
   score: number;
   categories: CategoryScore[];
   counts: Record<Severity, number>;
 }
 
-function deduct(severity: Severity): number {
-  return severity === "fixed" ? 0 : SEVERITY_POINTS[severity];
-}
-
-/** Calculate an overall 0–100 health score plus a per-category breakdown. */
-export function calculateHealthScore(
-  links: BrokenLinkRow[],
-  seoIssues: SeoIssueRow[],
-): HealthScoreResult {
+/**
+ * LinkWatch Health Score: start at 100 and subtract HEALTH_SCORE_WEIGHTS
+ * per open issue (critical −15, high −8, medium −3, low −1), clamped at 0.
+ */
+export function calculateHealthScore(issues: ScoreIssue[]): HealthScoreResult {
   const byCategory = new Map<Category, { deductions: number; openIssues: number }>();
   const counts: Record<Severity, number> = { critical: 0, high: 0, medium: 0, low: 0, fixed: 0 };
   let totalDeductions = 0;
 
-  const apply = (severity: Severity, category: Category) => {
-    counts[severity] += 1;
-    const points = deduct(severity);
+  for (const issue of issues) {
+    counts[issue.severity] += 1;
+    const points = issue.severity === "fixed" ? 0 : HEALTH_SCORE_WEIGHTS[issue.severity];
     totalDeductions += points;
-    const entry = byCategory.get(category) ?? { deductions: 0, openIssues: 0 };
-    entry.deductions += points;
-    if (severity !== "fixed") entry.openIssues += 1;
-    byCategory.set(category, entry);
-  };
-
-  for (const link of links) apply(linkSeverity(link), linkCategory(link));
-  for (const issue of seoIssues) apply(seoIssueSeverity(issue), seoIssueCategory(issue));
+    if (issue.category) {
+      const entry = byCategory.get(issue.category) ?? { deductions: 0, openIssues: 0 };
+      entry.deductions += points;
+      if (issue.severity !== "fixed") entry.openIssues += 1;
+      byCategory.set(issue.category, entry);
+    }
+  }
 
   const categories: CategoryScore[] = (
     ["Broken Links", "Internal Linking", "On-Page SEO", "Technical SEO"] as Category[]
@@ -131,4 +138,15 @@ export function calculateHealthScore(
   });
 
   return { score: Math.max(0, 100 - totalDeductions), categories, counts };
+}
+
+/** Convenience: build the issue list for calculateHealthScore from live rows. */
+export function toScoreIssues(links: BrokenLinkRow[], seoIssues: SeoIssueRow[]): ScoreIssue[] {
+  return [
+    ...links.map((link) => ({ severity: linkSeverity(link), category: linkCategory(link) })),
+    ...seoIssues.map((issue) => ({
+      severity: seoIssueSeverity(issue),
+      category: seoIssueCategory(issue),
+    })),
+  ];
 }
