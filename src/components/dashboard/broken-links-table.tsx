@@ -354,7 +354,17 @@ export function BrokenLinksTable({
                       </p>
                     )}
                   </div>
-                  <div className="flex shrink-0 gap-1">
+                  <div className="flex shrink-0 flex-wrap gap-1">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={busy}
+                      onClick={() => setReviewTarget({ kind: "seo", issue })}
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      <span className="ml-1">Review Fix</span>
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -438,7 +448,17 @@ export function BrokenLinksTable({
                     </a>
                   )}
                 </div>
-                <div className="flex shrink-0 gap-1">
+                <div className="flex shrink-0 flex-wrap gap-1">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    disabled={busy}
+                    onClick={() => setReviewTarget({ kind: "link", link })}
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    <span className="ml-1">Review Fix</span>
+                  </Button>
                   {!fixed && (
                     <Button
                       variant="ghost"
@@ -564,6 +584,16 @@ export function BrokenLinksTable({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <IssueFixModal
+        target={reviewTarget}
+        candidateUrls={candidateUrls}
+        onOpenChange={(open) => !open && setReviewTarget(null)}
+        onApplyLinkFix={onFix}
+        onIgnore={(t) => {
+          if (t.kind === "link") onDelete(t.link.id);
+          else onDeleteSeoIssue(t.issue.id);
+        }}
+      />
     </Card>
   );
 }
