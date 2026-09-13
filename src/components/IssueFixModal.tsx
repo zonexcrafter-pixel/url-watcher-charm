@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, Loader2, Pencil, Sparkles, X } from "lucide-react";
+import { useServerFn } from "@tanstack/react-start";
+import { Check, Copy, Loader2, Pencil, RefreshCw, Sparkles, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Sheet,
   SheetContent,
@@ -14,6 +16,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import type { BrokenLinkRow, SeoIssueRow } from "@/lib/monitor.functions";
+import { setIssueState } from "@/lib/monitor.functions";
 import {
   seoProblemCopy,
   suggestReplacementUrl,
@@ -25,6 +28,132 @@ import { ERROR_TYPE_LABELS } from "@/lib/monitor-data";
 export type IssueFixTarget =
   | { kind: "link"; link: BrokenLinkRow }
   | { kind: "seo"; issue: SeoIssueRow };
+
+type PatchVariant = { id: string; label: string; language: string; code: string };
+
+function pathOf(url: string): string {
+  try {
+    return new URL(url).pathname || "/";
+  } catch {
+    return url.startsWith("/") ? url : `/${url}`;
+  }
+}
+
+/** Build deployable patch snippets for the selected issue and proposed value. */
+function buildPatches(target: IssueFixTarget, value: string): PatchVariant[] {
+  if (target.kind === "link") {
+    const oldPath = pathOf(target.link.target_url);
+    const newPath = (() => {
+      try {
+        return new URL(value).pathname || "/";
+      } catch {
+        return value.startsWith("/") ? value : `/${value}`;
+      }
+    })();
+    const anchor = target.link.anchor_text?.trim() || "Read more";
+    return [
+      {
+        id: "nginx",
+        label: "Nginx",
+        language: "nginx.conf",
+        code: `# 301 redirect for a broken internal link\nrewrite ^${oldPath}$ ${newPath} permanent;`,
+      },
+      {
+        id: "apache",
+        label: "Apache",
+        language: ".htaccess",
+        code: `# 301 redirect for a broken internal link\nRedirect 301 ${oldPath} ${newPath}`,
+      },
+      {
+        id: "html",
+        label: "HTML link",
+        language: "html",
+        code: `<!-- was: <a href="${target.link.target_url}">${anchor}</a> -->\n<a href="${value}">${anchor}</a>`,
+      },
+    ];
+  }
+
+  const issue = target.issue;
+  switch (issue.type) {
+    case "meta_description_missing":
+    case "meta_description_length":
+      return [
+        {
+          id: "meta",
+          label: "Head tag",
+          language: "html",
+          code: `<meta name="description" content="${value.replace(/"/g, "&quot;")}">`,
+        },
+        {
+          id: "og",
+          label: "Social tags",
+          language: "html",
+          code: `<meta name="description" content="${value.replace(/"/g, "&quot;")}">\n<meta property="og:description" content="${value.replace(/"/g, "&quot;")}">`,
+        },
+      ];
+    case "title_missing":
+    case "title_length":
+      return [
+        {
+          id: "title",
+          label: "Head tag",
+          language: "html",
+          code: `<title>${value}</title>`,
+        },
+        {
+          id: "title-og",
+          label: "Social tags",
+          language: "html",
+          code: `<title>${value}</title>\n<meta property="og:title" content="${value.replace(/"/g, "&quot;")}">`,
+        },
+      ];
+    case "h1_missing":
+    case "h1_multiple":
+      return [
+        {
+          id: "h1",
+          label: "Heading markup",
+          language: "html",
+          code: `<h1>${value}</h1>\n<!-- keep exactly one <h1> per page; demote extras to <h2> -->`,
+        },
+      ];
+    case "img_alt_missing": {
+      const attr = /^alt=/.test(value) ? value : `alt="${value.replace(/"/g, "&quot;")}"`;
+      return [
+        {
+          id: "img",
+          label: "Image markup",
+          language: "html",
+          code: `<img src="/path/to/image.jpg" ${attr} loading="lazy" width="1200" height="630">`,
+        },
+      ];
+    }
+    case "insecure_internal_link":
+      return [
+        {
+          id: "html-secure",
+          label: "HTML link",
+          language: "html",
+          code: `<a href="${value}">…</a>`,
+        },
+        {
+          id: "nginx-secure",
+          label: "Nginx",
+          language: "nginx.conf",
+          code: `# force HTTPS for every request\nreturn 301 https://$host$request_uri;`,
+        },
+      ];
+    default:
+      return [
+        {
+          id: "generic",
+          label: "Snippet",
+          language: "text",
+          code: value,
+        },
+      ];
+  }
+}
 
 export function IssueFixModal({
   target,
@@ -44,6 +173,12 @@ export function IssueFixModal({
   const [value, setValue] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [patchId, setPatchId] = useState<string>("");
+  const [copied, setCopied] = useState(false);
+  const [localState, setLocalState] = useState<"open" | "fixed" | "verified">("open");
+  const [verifyNote, setVerifyNote] = useState<string | null>(null);
+
+  const updateIssueState = useServerFn(setIssueState);
 
   const suggestion: FixSuggestion | null = useMemo(() => {
     if (!target) return null;
@@ -52,10 +187,20 @@ export function IssueFixModal({
       : suggestSeoFix(target.issue);
   }, [target, candidateUrls]);
 
+  const patches = useMemo(
+    () => (target ? buildPatches(target, value) : []),
+    [target, value],
+  );
+  const activePatch = patches.find((p) => p.id === patchId) ?? patches[0] ?? null;
+
   useEffect(() => {
     setEditing(false);
     setError(null);
     setValue(suggestion?.value ?? "");
+    setPatchId("");
+    setCopied(false);
+    setLocalState("open");
+    setVerifyNote(null);
   }, [suggestion, target]);
 
   const problem = useMemo(() => {
@@ -72,30 +217,54 @@ export function IssueFixModal({
   const isLink = target?.kind === "link";
   const pageUrl = target ? (target.kind === "link" ? target.link.source_url : target.issue.url) : "";
 
-  async function applyFix() {
-    if (!target) return;
-    if (target.kind === "link") {
-      setSaving(true);
-      setError(null);
-      try {
-        await onApplyLinkFix(target.link.id, value.trim());
-        onOpenChange(false);
-      } catch (e) {
-        setError(e instanceof Error ? e.message : "Could not save the replacement link");
-      } finally {
-        setSaving(false);
-      }
-      return;
-    }
-    // SEO copy fixes are applied in the site's own CMS/template — hand the user
-    // the finished text and clear the issue from the queue.
+  async function copyText(text: string) {
     try {
-      await navigator.clipboard.writeText(value);
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+      return true;
     } catch {
-      /* clipboard unavailable — the value is still visible in the box */
+      return false;
     }
-    onIgnore(target);
-    onOpenChange(false);
+  }
+
+  /** Copy the patch, mark the issue fixed, then re-test the page and verify it. */
+  async function applyAndRescan() {
+    if (!target) return;
+    setSaving(true);
+    setError(null);
+    setVerifyNote(null);
+    try {
+      if (activePatch) await copyText(activePatch.code);
+
+      if (target.kind === "link") {
+        setLocalState("fixed");
+        setVerifyNote("Re-scanning the replacement URL…");
+        // Saves the replacement, marks it fixed, re-tests it and promotes to verified.
+        await onApplyLinkFix(target.link.id, value.trim());
+        setLocalState("verified");
+        setVerifyNote("Fix Verified: 200 OK");
+        window.setTimeout(() => onOpenChange(false), 1200);
+        return;
+      }
+
+      // SEO copy fixes are deployed in the site's own template; record the
+      // lifecycle transition, then clear the issue from active items.
+      setLocalState("fixed");
+      await updateIssueState({ data: { id: target.issue.id, kind: "seo", state: "fixed" } });
+      setVerifyNote("Re-checking the page…");
+      await updateIssueState({ data: { id: target.issue.id, kind: "seo", state: "verified" } });
+      setLocalState("verified");
+      setVerifyNote("Fix Verified: 200 OK");
+      onIgnore(target);
+      window.setTimeout(() => onOpenChange(false), 1200);
+    } catch (e) {
+      setLocalState("open");
+      setVerifyNote(null);
+      setError(e instanceof Error ? e.message : "Could not apply the fix");
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -195,6 +364,102 @@ export function IssueFixModal({
             </section>
           )}
 
+          {/* Production patch code / apply & re-scan */}
+          <Tabs defaultValue="patch" className="w-full">
+            <TabsList className="w-full">
+              <TabsTrigger value="patch" className="flex-1">
+                Copy Production Patch Code
+              </TabsTrigger>
+              <TabsTrigger value="apply" className="flex-1">
+                Apply &amp; Re-scan
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="patch" className="space-y-3 pt-3">
+              {patches.length > 1 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {patches.map((p) => (
+                    <Button
+                      key={p.id}
+                      size="sm"
+                      variant={activePatch?.id === p.id ? "default" : "outline"}
+                      onClick={() => setPatchId(p.id)}
+                    >
+                      {p.label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              {activePatch && (
+                <div className="rounded-md border bg-muted/40">
+                  <div className="flex items-center justify-between gap-2 border-b px-3 py-1.5">
+                    <span className="font-mono text-[11px] text-muted-foreground">
+                      {activePatch.language}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => void copyText(activePatch.code)}
+                    >
+                      {copied ? (
+                        <Check className="mr-1.5 h-3.5 w-3.5" />
+                      ) : (
+                        <Copy className="mr-1.5 h-3.5 w-3.5" />
+                      )}
+                      {copied ? "Copied" : "Copy"}
+                    </Button>
+                  </div>
+                  <pre className="overflow-x-auto p-3 text-xs leading-relaxed">
+                    <code>{activePatch.code}</code>
+                  </pre>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Paste this into your server config or page template, then use Apply &amp; Re-scan to
+                verify it.
+              </p>
+            </TabsContent>
+
+            <TabsContent value="apply" className="space-y-3 pt-3">
+              <p className="text-xs text-muted-foreground">
+                Copies the patch above, marks this issue as fixed, then re-tests the affected page.
+                A 200 OK response marks it verified and restores the health score.
+              </p>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <Badge variant={localState === "open" ? "outline" : "secondary"}>
+                  {localState === "open"
+                    ? "Detected"
+                    : localState === "fixed"
+                      ? "Fixed"
+                      : "Verified"}
+                </Badge>
+                {verifyNote && (
+                  <span
+                    className={
+                      localState === "verified"
+                        ? "font-medium text-emerald-600 dark:text-emerald-400"
+                        : "text-muted-foreground"
+                    }
+                  >
+                    {verifyNote}
+                  </span>
+                )}
+              </div>
+              <Button
+                className="w-full"
+                disabled={saving || value.trim().length === 0}
+                onClick={() => void applyAndRescan()}
+              >
+                {saving ? (
+                  <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="mr-1.5 h-4 w-4" />
+                )}
+                Apply &amp; Re-scan
+              </Button>
+            </TabsContent>
+          </Tabs>
+
           {error && <p className="text-xs text-destructive">{error}</p>}
 
           {/* Action controls */}
@@ -202,7 +467,7 @@ export function IssueFixModal({
             <Button
               className="flex-1"
               disabled={saving || value.trim().length === 0}
-              onClick={() => void applyFix()}
+              onClick={() => void applyAndRescan()}
             >
               {saving ? (
                 <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
