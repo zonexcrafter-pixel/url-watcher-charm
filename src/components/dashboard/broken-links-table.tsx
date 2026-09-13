@@ -484,6 +484,15 @@ export function BrokenLinksTable({
                     “{link.anchor_text ?? "(no anchor text)"}” ·{" "}
                     {fixed ? "Redirected" : (ERROR_TYPE_LABELS[link.error_type] ?? link.error_type)}
                   </p>
+                  {topCandidate && (
+                    <p
+                      className="truncate text-xs text-blue-600 dark:text-blue-400"
+                      title={topCandidate.url}
+                    >
+                      Best match ({topCandidate.score}% · heuristic string matching):{" "}
+                      {topCandidate.url}
+                    </p>
+                  )}
                   {fixed && link.replacement_url && (
                     <a
                       href={link.replacement_url}
