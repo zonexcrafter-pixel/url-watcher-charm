@@ -285,6 +285,63 @@ export function IssueFixModal({
     }
   }
 
+  /** Copy the selected patch and advance the issue to `awaiting_fix`. */
+  async function copyPatchCode() {
+    if (!target || !activePatch) return;
+    setError(null);
+    const ok = await copyText(activePatch.code);
+    if (!ok) {
+      setError("Clipboard access was blocked — copy the code manually");
+      return;
+    }
+    const id = target.kind === "link" ? target.link.id : target.issue.id;
+    const kind = target.kind;
+    if (canTransition(lifecycle, "awaiting_fix")) {
+      try {
+        await transitionIssueState(id, kind, "awaiting_fix");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not update issue state");
+        return;
+      }
+    }
+    setLifecycle("awaiting_fix");
+    setVerifyFailure(null);
+  }
+
+  /** Mark the issue verifying, then re-test the live page via the verifier engine. */
+  async function verifyFix() {
+    if (!target || target.kind !== "link") return;
+    setVerifying(true);
+    setError(null);
+    setVerifyFailure(null);
+    try {
+      if (canTransition(lifecycle, "verifying")) {
+        await transitionIssueState(target.link.id, "link", "verifying");
+      }
+      setLifecycle("verifying");
+      const result = await verifyFixOnLiveSite(
+        target.link.id,
+        target.link.source_url,
+        target.link.target_url,
+        value.trim(),
+      );
+      if (result.success) {
+        setLifecycle("verified");
+        setLocalState("verified");
+        setVerifyNote("Fix Verified: 200 OK");
+        window.setTimeout(() => onOpenChange(false), 1500);
+      } else {
+        setLifecycle("awaiting_fix");
+        setVerifyFailure(result.reason);
+      }
+    } catch (e) {
+      setLifecycle("awaiting_fix");
+      setVerifyFailure(e instanceof Error ? e.message : "Verification failed");
+    } finally {
+      setVerifying(false);
+    }
+  }
+
   return (
     <Sheet open={target !== null} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-lg">
