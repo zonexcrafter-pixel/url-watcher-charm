@@ -24,6 +24,12 @@ import {
   type FixSuggestion,
 } from "@/lib/fixSuggestions";
 import { ERROR_TYPE_LABELS } from "@/lib/monitor-data";
+import {
+  canTransition,
+  transitionIssueState,
+  verifyFixOnLiveSite,
+  type IssueLifecycleState,
+} from "@/lib/verifier";
 
 export type IssueFixTarget =
   | { kind: "link"; link: BrokenLinkRow }
