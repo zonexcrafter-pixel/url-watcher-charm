@@ -362,33 +362,86 @@ async function checkLink(link: FoundLink): Promise<BrokenResult | null> {
   }
 }
 
-/** Crawl a domain's pages and return every broken link found. */
+/** Crawl a domain's pages and return every broken link and SEO issue found. */
 export async function crawlSite(domain: string): Promise<CrawlResult> {
   const clean = normalizeDomain(domain);
   const startUrl = `https://${clean}`;
   const origin = new URL(startUrl).hostname;
 
-  const queue: string[] = [startUrl];
+  // SSRF guardrail: refuse to crawl private/loopback targets entirely.
+  try {
+    assertUrlAllowed(startUrl);
+  } catch (error) {
+    throw new Error(
+      error instanceof Error ? error.message : `Blocked: ${clean} is not a crawlable public domain.`,
+    );
+  }
+
+  // Fetch robots.txt once per scan and evaluate paths against its rules.
+  const robotsCache = new Map<string, Promise<boolean>>();
+  const isAllowedByRobots = (path: string): Promise<boolean> => {
+    if (!robotsCache.has(path)) {
+      robotsCache.set(path, checkRobotsPermission(clean, path));
+    }
+    return robotsCache.get(path)!;
+  };
+
+  // Depth-aware queue: homepage is depth 0; links found on it are depth 1, etc.
+  const queue: { url: string; depth: number }[] = [{ url: startUrl, depth: 0 }];
+  const queued = new Set<string>([startUrl]);
   const visited = new Set<string>();
   const found = new Map<string, FoundLink>();
   const seoIssues: SeoIssue[] = [];
+  const pages: CrawlPageResult[] = [];
 
   while (queue.length > 0 && visited.size < MAX_PAGES) {
-    const pageUrl = queue.shift()!;
+    const { url: pageUrl, depth } = queue.shift()!;
     if (visited.has(pageUrl)) continue;
     visited.add(pageUrl);
 
-    let html = "";
+    const allowed = await isAllowedByRobots(new URL(pageUrl).pathname);
+    const startedAt = Date.now();
+    let html: string | null = null;
+
+    if (!allowed) {
+      pages.push({
+        url: pageUrl,
+        httpStatus: null,
+        responseTimeMs: Date.now() - startedAt,
+        isAllowedByRobots: false,
+        rawHtml: null,
+        errorMessage: "restricted_by_robots",
+      });
+      continue;
+    }
+
     try {
       const res = await timedFetch(pageUrl, { method: "GET" });
+      pages.push({
+        url: pageUrl,
+        httpStatus: res.status,
+        responseTimeMs: Date.now() - startedAt,
+        isAllowedByRobots: true,
+        rawHtml: null,
+        errorMessage: null,
+      });
       if (!res.ok) continue;
       const type = res.headers.get("content-type") ?? "";
       if (!type.includes("html")) continue;
       html = (await res.text()).slice(0, 400_000);
-    } catch {
+      pages[pages.length - 1]!.rawHtml = html;
+    } catch (error) {
       if (pageUrl === startUrl) {
         throw new Error(`Could not reach ${clean}. Check the domain and try again.`);
       }
+      pages.push({
+        url: pageUrl,
+        httpStatus: null,
+        responseTimeMs: Date.now() - startedAt,
+        isAllowedByRobots: true,
+        rawHtml: null,
+        errorMessage: error instanceof Error ? error.message : "fetch_failed",
+      });
       continue;
     }
 
@@ -398,30 +451,32 @@ export async function crawlSite(domain: string): Promise<CrawlResult> {
       if (!found.has(link.targetUrl) && found.size < MAX_LINKS) {
         found.set(link.targetUrl, link);
       }
+      // Only recurse within MAX_DEPTH, on the same origin, under MAX_PAGES.
+      if (depth >= MAX_DEPTH) continue;
       const host = new URL(link.targetUrl).hostname;
       if (
         host === origin &&
         !visited.has(link.targetUrl) &&
+        !queued.has(link.targetUrl) &&
         visited.size + queue.length < MAX_PAGES
       ) {
-        queue.push(link.targetUrl);
+        queued.add(link.targetUrl);
+        queue.push({ url: link.targetUrl, depth: depth + 1 });
       }
     }
   }
 
+  // Check every discovered link with a hard cap of 3 concurrent requests.
   const links = [...found.values()];
-  const broken: BrokenResult[] = [];
-  for (let i = 0; i < links.length; i += CONCURRENCY) {
-    const batch = links.slice(i, i + CONCURRENCY);
-    const results = await Promise.all(batch.map(checkLink));
-    for (const result of results) if (result) broken.push(result);
-  }
+  const checked = await mapWithConcurrency(links, CONCURRENCY, checkLink);
+  const broken = checked.filter((r): r is BrokenResult => r !== null);
 
   return {
     pagesScanned: visited.size,
     linksChecked: links.length,
     broken,
     seoIssues,
+    pages,
   };
 }
 
