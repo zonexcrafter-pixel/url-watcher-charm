@@ -69,7 +69,9 @@ export const listSeoIssues = createServerFn({ method: "GET" })
   .handler(async ({ context }): Promise<SeoIssueRow[]> => {
     const { data, error } = await context.supabase
       .from("seo_issues")
-      .select("id, website_id, type, url, severity, message, detail, detected_at, websites(domain)")
+      .select(
+        "id, website_id, type, url, severity, message, detail, detected_at, issue_state, state_updated_at, verified_at, websites(domain)",
+      )
       .order("detected_at", { ascending: false });
     if (error) throw new Error(error.message);
     return (data ?? []).map((row) => {
@@ -102,7 +104,7 @@ export const listBrokenLinks = createServerFn({ method: "GET" })
     const { data, error } = await context.supabase
       .from("broken_links")
       .select(
-        "id, website_id, source_url, target_url, anchor_text, http_status, error_type, detected_at, replacement_url, fixed_at, websites(domain)",
+        "id, website_id, source_url, target_url, anchor_text, http_status, error_type, detected_at, replacement_url, fixed_at, issue_state, state_updated_at, verified_at, verified_status, websites(domain)",
       )
       .order("detected_at", { ascending: false });
     if (error) throw new Error(error.message);
