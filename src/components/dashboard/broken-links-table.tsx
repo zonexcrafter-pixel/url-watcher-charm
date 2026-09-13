@@ -85,7 +85,7 @@ const STATE_BADGE: Record<string, { label: string; className: string }> = {
 };
 
 function stateBadge(state: string | null | undefined) {
-  return STATE_BADGE[state ?? "detected"] ?? STATE_BADGE.detected!;
+  return STATE_BADGE[state ?? "detected"] ?? STATE_BADGE["detected"]!;
 }
 
 /** Short label + badge color for each SEO issue type. */
