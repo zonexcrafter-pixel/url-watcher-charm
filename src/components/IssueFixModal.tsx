@@ -24,6 +24,12 @@ import {
   type FixSuggestion,
 } from "@/lib/fixSuggestions";
 import { ERROR_TYPE_LABELS } from "@/lib/monitor-data";
+import {
+  canTransition,
+  transitionIssueState,
+  verifyFixOnLiveSite,
+  type IssueLifecycleState,
+} from "@/lib/verifier";
 
 export type IssueFixTarget =
   | { kind: "link"; link: BrokenLinkRow }
@@ -177,6 +183,9 @@ export function IssueFixModal({
   const [copied, setCopied] = useState(false);
   const [localState, setLocalState] = useState<"open" | "fixed" | "verified">("open");
   const [verifyNote, setVerifyNote] = useState<string | null>(null);
+  const [lifecycle, setLifecycle] = useState<IssueLifecycleState>("detected");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyFailure, setVerifyFailure] = useState<string | null>(null);
 
   const updateIssueState = useServerFn(setIssueState);
 
@@ -201,6 +210,15 @@ export function IssueFixModal({
     setCopied(false);
     setLocalState("open");
     setVerifyNote(null);
+    setVerifying(false);
+    setVerifyFailure(null);
+    const initial =
+      target?.kind === "link"
+        ? target.link.issue_state
+        : target?.kind === "seo"
+          ? target.issue.issue_state
+          : "detected";
+    setLifecycle(initial as IssueLifecycleState);
   }, [suggestion, target]);
 
   const problem = useMemo(() => {
@@ -264,6 +282,63 @@ export function IssueFixModal({
       setError(e instanceof Error ? e.message : "Could not apply the fix");
     } finally {
       setSaving(false);
+    }
+  }
+
+  /** Copy the selected patch and advance the issue to `awaiting_fix`. */
+  async function copyPatchCode() {
+    if (!target || !activePatch) return;
+    setError(null);
+    const ok = await copyText(activePatch.code);
+    if (!ok) {
+      setError("Clipboard access was blocked — copy the code manually");
+      return;
+    }
+    const id = target.kind === "link" ? target.link.id : target.issue.id;
+    const kind = target.kind;
+    if (canTransition(lifecycle, "awaiting_fix")) {
+      try {
+        await transitionIssueState(id, kind, "awaiting_fix");
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not update issue state");
+        return;
+      }
+    }
+    setLifecycle("awaiting_fix");
+    setVerifyFailure(null);
+  }
+
+  /** Mark the issue verifying, then re-test the live page via the verifier engine. */
+  async function verifyFix() {
+    if (!target || target.kind !== "link") return;
+    setVerifying(true);
+    setError(null);
+    setVerifyFailure(null);
+    try {
+      if (canTransition(lifecycle, "verifying")) {
+        await transitionIssueState(target.link.id, "link", "verifying");
+      }
+      setLifecycle("verifying");
+      const result = await verifyFixOnLiveSite(
+        target.link.id,
+        target.link.source_url,
+        target.link.target_url,
+        value.trim(),
+      );
+      if (result.success) {
+        setLifecycle("verified");
+        setLocalState("verified");
+        setVerifyNote("Fix Verified: 200 OK");
+        window.setTimeout(() => onOpenChange(false), 1500);
+      } else {
+        setLifecycle("awaiting_fix");
+        setVerifyFailure(result.reason);
+      }
+    } catch (e) {
+      setLifecycle("awaiting_fix");
+      setVerifyFailure(e instanceof Error ? e.message : "Verification failed");
+    } finally {
+      setVerifying(false);
     }
   }
 
@@ -459,6 +534,75 @@ export function IssueFixModal({
               </Button>
             </TabsContent>
           </Tabs>
+
+          {/* Lifecycle actions: copy patch → awaiting_fix, verify on live site → verified */}
+          {(lifecycle === "approved" ||
+            lifecycle === "awaiting_fix" ||
+            lifecycle === "verifying" ||
+            lifecycle === "verified") && (
+            <section className="space-y-3 rounded-md border p-3">
+              <div className="flex items-center justify-between gap-2">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                  Deployment workflow
+                </h3>
+                <Badge
+                  variant={
+                    lifecycle === "verified"
+                      ? "secondary"
+                      : lifecycle === "verifying"
+                        ? "default"
+                        : "outline"
+                  }
+                  className="capitalize"
+                >
+                  {lifecycle.replace(/_/g, " ")}
+                </Badge>
+              </div>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  disabled={saving || verifying || !activePatch || lifecycle === "verified"}
+                  onClick={() => void copyPatchCode()}
+                >
+                  {copied ? (
+                    <Check className="mr-1.5 h-4 w-4" />
+                  ) : (
+                    <Copy className="mr-1.5 h-4 w-4" />
+                  )}
+                  {copied ? "Copied" : "Copy Patch Code"}
+                </Button>
+                {isLink && (
+                  <Button
+                    className="flex-1"
+                    disabled={
+                      saving ||
+                      verifying ||
+                      value.trim().length === 0 ||
+                      lifecycle === "verified" ||
+                      !canTransition(lifecycle, "verifying")
+                    }
+                    onClick={() => void verifyFix()}
+                  >
+                    {verifying ? (
+                      <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="mr-1.5 h-4 w-4" />
+                    )}
+                    {verifying ? "Verifying…" : "Verify Fix"}
+                  </Button>
+                )}
+              </div>
+              {verifyFailure && (
+                <p className="text-xs text-destructive">{verifyFailure}</p>
+              )}
+              {lifecycle === "verified" && verifyNote && (
+                <p className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                  {verifyNote}
+                </p>
+              )}
+            </section>
+          )}
 
           {error && <p className="text-xs text-destructive">{error}</p>}
 
