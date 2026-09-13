@@ -22,9 +22,13 @@ export type Database = {
           fixed_at: string | null
           http_status: number | null
           id: string
+          issue_state: string
           replacement_url: string | null
           source_url: string
+          state_updated_at: string
           target_url: string
+          verified_at: string | null
+          verified_status: number | null
           website_id: string
         }
         Insert: {
@@ -34,9 +38,13 @@ export type Database = {
           fixed_at?: string | null
           http_status?: number | null
           id?: string
+          issue_state?: string
           replacement_url?: string | null
           source_url: string
+          state_updated_at?: string
           target_url: string
+          verified_at?: string | null
+          verified_status?: number | null
           website_id: string
         }
         Update: {
@@ -46,9 +54,13 @@ export type Database = {
           fixed_at?: string | null
           http_status?: number | null
           id?: string
+          issue_state?: string
           replacement_url?: string | null
           source_url?: string
+          state_updated_at?: string
           target_url?: string
+          verified_at?: string | null
+          verified_status?: number | null
           website_id?: string
         }
         Relationships: [
@@ -66,30 +78,39 @@ export type Database = {
           detail: string | null
           detected_at: string
           id: string
+          issue_state: string
           message: string
           severity: string
+          state_updated_at: string
           type: string
           url: string
+          verified_at: string | null
           website_id: string
         }
         Insert: {
           detail?: string | null
           detected_at?: string
           id?: string
+          issue_state?: string
           message: string
           severity: string
+          state_updated_at?: string
           type: string
           url: string
+          verified_at?: string | null
           website_id: string
         }
         Update: {
           detail?: string | null
           detected_at?: string
           id?: string
+          issue_state?: string
           message?: string
           severity?: string
+          state_updated_at?: string
           type?: string
           url?: string
+          verified_at?: string | null
           website_id?: string
         }
         Relationships: [

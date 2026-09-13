@@ -13,6 +13,24 @@ export interface WebsiteRow {
   broken_count: number;
 }
 
+/** Lifecycle of an issue, from first detection through automated verification. */
+export type IssueState =
+  | "detected"
+  | "suggested"
+  | "fix_proposed"
+  | "fixed"
+  | "verified"
+  | "ignored";
+
+export const ISSUE_STATES: IssueState[] = [
+  "detected",
+  "suggested",
+  "fix_proposed",
+  "fixed",
+  "verified",
+  "ignored",
+];
+
 export interface BrokenLinkRow {
   id: string;
   website_id: string;
@@ -25,6 +43,10 @@ export interface BrokenLinkRow {
   detected_at: string;
   replacement_url: string | null;
   fixed_at: string | null;
+  issue_state: IssueState;
+  state_updated_at: string;
+  verified_at: string | null;
+  verified_status: number | null;
 }
 
 export interface SeoIssueRow {
@@ -37,6 +59,9 @@ export interface SeoIssueRow {
   message: string;
   detail: string | null;
   detected_at: string;
+  issue_state: IssueState;
+  state_updated_at: string;
+  verified_at: string | null;
 }
 
 export const listSeoIssues = createServerFn({ method: "GET" })
