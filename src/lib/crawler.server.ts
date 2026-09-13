@@ -254,14 +254,26 @@ async function timedFetch(url: string, init: RequestInit = {}): Promise<FetchOut
     const location = response.headers.get("location");
     const isRedirect = response.status >= 300 && response.status < 400 && !!location;
     if (!isRedirect) {
-      return { response, finalUrl: currentUrl, redirectCount, firstRedirectTo, firstRedirectStatus };
+      return {
+        response,
+        finalUrl: currentUrl,
+        redirectCount,
+        firstRedirectTo,
+        firstRedirectStatus,
+      };
     }
 
     let nextUrl: string;
     try {
       nextUrl = new URL(location, currentUrl).toString();
     } catch {
-      return { response, finalUrl: currentUrl, redirectCount, firstRedirectTo, firstRedirectStatus };
+      return {
+        response,
+        finalUrl: currentUrl,
+        redirectCount,
+        firstRedirectTo,
+        firstRedirectStatus,
+      };
     }
     if (firstRedirectTo === null) {
       firstRedirectTo = nextUrl;
@@ -437,7 +449,12 @@ export function extractSeoIssues(html: string, pageUrl: string, origin: string):
     }
   }
   for (const url of [...insecure].slice(0, 10)) {
-    push("insecure_internal_link", "warning", "Internal link uses http:// instead of https://", url);
+    push(
+      "insecure_internal_link",
+      "warning",
+      "Internal link uses http:// instead of https://",
+      url,
+    );
   }
 
   return issues;
@@ -468,7 +485,10 @@ export function findDuplicateIssues(pages: CrawlPageResult[]): SeoIssue[] {
         url,
         severity: "warning",
         message: `Title is duplicated across ${urls.length} pages`,
-        detail: urls.filter((u) => u !== url).slice(0, 5).join(", "),
+        detail: urls
+          .filter((u) => u !== url)
+          .slice(0, 5)
+          .join(", "),
       });
     }
   }
@@ -480,7 +500,10 @@ export function findDuplicateIssues(pages: CrawlPageResult[]): SeoIssue[] {
         url,
         severity: "warning",
         message: `Meta description is duplicated across ${urls.length} pages`,
-        detail: urls.filter((u) => u !== url).slice(0, 5).join(", "),
+        detail: urls
+          .filter((u) => u !== url)
+          .slice(0, 5)
+          .join(", "),
       });
     }
   }
@@ -567,7 +590,9 @@ export async function crawlSite(domain: string): Promise<CrawlResult> {
     assertUrlAllowed(startUrl);
   } catch (error) {
     throw new Error(
-      error instanceof Error ? error.message : `Blocked: ${clean} is not a crawlable public domain.`,
+      error instanceof Error
+        ? error.message
+        : `Blocked: ${clean} is not a crawlable public domain.`,
     );
   }
 

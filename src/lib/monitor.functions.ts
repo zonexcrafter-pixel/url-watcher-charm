@@ -15,12 +15,7 @@ export interface WebsiteRow {
 
 /** Lifecycle of an issue, from first detection through automated verification. */
 export type IssueState =
-  | "detected"
-  | "suggested"
-  | "fix_proposed"
-  | "fixed"
-  | "verified"
-  | "ignored";
+  "detected" | "suggested" | "fix_proposed" | "fixed" | "verified" | "ignored";
 
 export const ISSUE_STATES: IssueState[] = [
   "detected",
