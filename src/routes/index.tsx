@@ -232,7 +232,7 @@ function Dashboard() {
           </div>
         ) : (
           <>
-            <StatCards sites={sites} />
+            <StatCards links={links} seoIssues={seoIssues} />
 
             <div className="grid gap-6 lg:grid-cols-[320px_1fr]">
               <SitesList
