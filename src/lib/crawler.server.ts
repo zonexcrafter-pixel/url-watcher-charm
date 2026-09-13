@@ -6,10 +6,133 @@
 
 const USER_AGENT = "Mozilla/5.0 (compatible; LinkWatchBot/1.0; +https://linkwatch.app/bot)";
 
-const MAX_PAGES = 6;
+const MAX_DEPTH = 2;
+const MAX_PAGES = 100;
 const MAX_LINKS = 80;
-const CONCURRENCY = 8;
+const CONCURRENCY = 3;
 const TIMEOUT_MS = 8000;
+
+export interface CrawlPageResult {
+  url: string;
+  httpStatus: number | null;
+  responseTimeMs: number;
+  isAllowedByRobots: boolean;
+  rawHtml: string | null;
+  errorMessage: string | null;
+}
+
+/* ---------------- SSRF guardrails ---------------- */
+
+function isPrivateIpv4(hostname: string): boolean {
+  const parts = hostname.split(".");
+  if (parts.length !== 4) return false;
+  const octets = parts.map(Number);
+  if (octets.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return false;
+  const [a = 0, b = 0] = octets;
+  if (a === 10) return true; // 10.0.0.0/8
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+  if (a === 192 && b === 168) return true; // 192.168.0.0/16
+  if (a === 127) return true; // loopback
+  if (a === 169 && b === 254) return true; // link-local / cloud metadata
+  if (a === 0) return true; // 0.0.0.0/8
+  return false;
+}
+
+/** Reject localhost, private/reserved IPs, and non-HTTP(S) targets. Throws on blocked URLs. */
+export function assertUrlAllowed(rawUrl: string): URL {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    throw new Error("Blocked: malformed URL");
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`Blocked: scheme "${url.protocol}" is not allowed`);
+  }
+  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".internal")) {
+    throw new Error("Blocked: localhost targets are not allowed");
+  }
+  if (isPrivateIpv4(host)) {
+    throw new Error("Blocked: private IP addresses are not allowed");
+  }
+  if (host === "::1" || host === "::") {
+    throw new Error("Blocked: loopback targets are not allowed");
+  }
+  if (/^(fe80|fc|fd)/i.test(host.replace(/:/g, ""))) {
+    throw new Error("Blocked: private IPv6 ranges are not allowed");
+  }
+  return url;
+}
+
+/* ---------------- Robots.txt compliance ---------------- */
+
+/**
+ * Fetch a domain's /robots.txt and evaluate a path against its `User-agent: *`
+ * rules using longest-match Allow/Disallow semantics.
+ */
+export async function checkRobotsPermission(domain: string, path: string): Promise<boolean> {
+  let text: string;
+  try {
+    const res = await timedFetch(`https://${normalizeDomain(domain)}/robots.txt`, { method: "GET" });
+    if (!res.ok) return true; // no robots.txt → allowed
+    text = await res.text();
+  } catch {
+    return true; // unreachable robots.txt → allowed
+  }
+
+  // Parse groups; only `User-agent: *` groups apply to us.
+  const groups: { applies: boolean; rules: { type: "allow" | "disallow"; path: string }[] }[] = [];
+  let current: (typeof groups)[number] | null = null;
+  for (const rawLine of text.split("\n")) {
+    const line = rawLine.replace(/#.*$/, "").trim();
+    if (!line) continue;
+    const m = /^(user-agent|allow|disallow)\s*:\s*(.*)$/i.exec(line);
+    if (!m) continue;
+    const field = m[1]!.toLowerCase();
+    const value = (m[2] ?? "").trim();
+    if (field === "user-agent") {
+      if (!current || current.rules.length > 0) {
+        current = { applies: false, rules: [] };
+        groups.push(current);
+      }
+      if (value === "*") current.applies = true;
+    } else if (current && current.applies) {
+      current.rules.push({ type: field as "allow" | "disallow", path: value });
+    }
+  }
+
+  let best: { type: "allow" | "disallow"; length: number } | null = null;
+  for (const group of groups) {
+    if (!group.applies) continue;
+    for (const rule of group.rules) {
+      if (rule.path === "") continue;
+      if (path.startsWith(rule.path) && rule.path.length >= (best?.length ?? -1)) {
+        best = { type: rule.type, length: rule.path.length };
+      }
+    }
+  }
+  return best ? best.type === "allow" : true;
+}
+
+/* ---------------- Concurrency limiter ---------------- */
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i]!);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
 
 export interface FoundLink {
   sourceUrl: string;
@@ -45,6 +168,7 @@ export interface CrawlResult {
   linksChecked: number;
   broken: BrokenResult[];
   seoIssues: SeoIssue[];
+  pages: CrawlPageResult[];
 }
 
 export function normalizeDomain(input: string): string {
@@ -66,6 +190,8 @@ export function classify(status: number | null): string {
 }
 
 async function timedFetch(url: string, init: RequestInit = {}) {
+  // SSRF guardrail: every outbound request is validated before dispatch.
+  assertUrlAllowed(url);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
   try {
@@ -237,33 +363,86 @@ async function checkLink(link: FoundLink): Promise<BrokenResult | null> {
   }
 }
 
-/** Crawl a domain's pages and return every broken link found. */
+/** Crawl a domain's pages and return every broken link and SEO issue found. */
 export async function crawlSite(domain: string): Promise<CrawlResult> {
   const clean = normalizeDomain(domain);
   const startUrl = `https://${clean}`;
   const origin = new URL(startUrl).hostname;
 
-  const queue: string[] = [startUrl];
+  // SSRF guardrail: refuse to crawl private/loopback targets entirely.
+  try {
+    assertUrlAllowed(startUrl);
+  } catch (error) {
+    throw new Error(
+      error instanceof Error ? error.message : `Blocked: ${clean} is not a crawlable public domain.`,
+    );
+  }
+
+  // Fetch robots.txt once per scan and evaluate paths against its rules.
+  const robotsCache = new Map<string, Promise<boolean>>();
+  const isAllowedByRobots = (path: string): Promise<boolean> => {
+    if (!robotsCache.has(path)) {
+      robotsCache.set(path, checkRobotsPermission(clean, path));
+    }
+    return robotsCache.get(path)!;
+  };
+
+  // Depth-aware queue: homepage is depth 0; links found on it are depth 1, etc.
+  const queue: { url: string; depth: number }[] = [{ url: startUrl, depth: 0 }];
+  const queued = new Set<string>([startUrl]);
   const visited = new Set<string>();
   const found = new Map<string, FoundLink>();
   const seoIssues: SeoIssue[] = [];
+  const pages: CrawlPageResult[] = [];
 
   while (queue.length > 0 && visited.size < MAX_PAGES) {
-    const pageUrl = queue.shift()!;
+    const { url: pageUrl, depth } = queue.shift()!;
     if (visited.has(pageUrl)) continue;
     visited.add(pageUrl);
 
-    let html = "";
+    const allowed = await isAllowedByRobots(new URL(pageUrl).pathname);
+    const startedAt = Date.now();
+    let html: string | null = null;
+
+    if (!allowed) {
+      pages.push({
+        url: pageUrl,
+        httpStatus: null,
+        responseTimeMs: Date.now() - startedAt,
+        isAllowedByRobots: false,
+        rawHtml: null,
+        errorMessage: "restricted_by_robots",
+      });
+      continue;
+    }
+
     try {
       const res = await timedFetch(pageUrl, { method: "GET" });
+      pages.push({
+        url: pageUrl,
+        httpStatus: res.status,
+        responseTimeMs: Date.now() - startedAt,
+        isAllowedByRobots: true,
+        rawHtml: null,
+        errorMessage: null,
+      });
       if (!res.ok) continue;
       const type = res.headers.get("content-type") ?? "";
       if (!type.includes("html")) continue;
       html = (await res.text()).slice(0, 400_000);
-    } catch {
+      pages[pages.length - 1]!.rawHtml = html;
+    } catch (error) {
       if (pageUrl === startUrl) {
         throw new Error(`Could not reach ${clean}. Check the domain and try again.`);
       }
+      pages.push({
+        url: pageUrl,
+        httpStatus: null,
+        responseTimeMs: Date.now() - startedAt,
+        isAllowedByRobots: true,
+        rawHtml: null,
+        errorMessage: error instanceof Error ? error.message : "fetch_failed",
+      });
       continue;
     }
 
@@ -273,30 +452,32 @@ export async function crawlSite(domain: string): Promise<CrawlResult> {
       if (!found.has(link.targetUrl) && found.size < MAX_LINKS) {
         found.set(link.targetUrl, link);
       }
+      // Only recurse within MAX_DEPTH, on the same origin, under MAX_PAGES.
+      if (depth >= MAX_DEPTH) continue;
       const host = new URL(link.targetUrl).hostname;
       if (
         host === origin &&
         !visited.has(link.targetUrl) &&
+        !queued.has(link.targetUrl) &&
         visited.size + queue.length < MAX_PAGES
       ) {
-        queue.push(link.targetUrl);
+        queued.add(link.targetUrl);
+        queue.push({ url: link.targetUrl, depth: depth + 1 });
       }
     }
   }
 
+  // Check every discovered link with a hard cap of 3 concurrent requests.
   const links = [...found.values()];
-  const broken: BrokenResult[] = [];
-  for (let i = 0; i < links.length; i += CONCURRENCY) {
-    const batch = links.slice(i, i + CONCURRENCY);
-    const results = await Promise.all(batch.map(checkLink));
-    for (const result of results) if (result) broken.push(result);
-  }
+  const checked = await mapWithConcurrency(links, CONCURRENCY, checkLink);
+  const broken = checked.filter((r): r is BrokenResult => r !== null);
 
   return {
     pagesScanned: visited.size,
     linksChecked: links.length,
     broken,
     seoIssues,
+    pages,
   };
 }
 
