@@ -22,6 +22,13 @@
       "when": 1789186470225,
       "tag": "0002_create_seo_issues",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1789280913261,
+      "tag": "0003_add_issue_state_lifecycle",
+      "breakpoints": true
     }
   ]
 }
