@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Search,
   Trash2,
+  Sparkles,
   Wrench,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
@@ -30,6 +31,7 @@ import {
   type BrokenLinkRow,
 } from "@/lib/monitor-data";
 import { type SeoIssueRow } from "@/lib/monitor.functions";
+import { IssueFixModal, type IssueFixTarget } from "@/components/IssueFixModal";
 import {
   SEVERITY_BADGE,
   SEVERITY_LABEL,
@@ -177,6 +179,18 @@ export function BrokenLinksTable({
   const [fixError, setFixError] = useState<string | null>(null);
   const [fixing, setFixing] = useState(false);
   const [seoTarget, setSeoTarget] = useState<SeoIssueRow | null>(null);
+  const [reviewTarget, setReviewTarget] = useState<IssueFixTarget | null>(null);
+
+  /** Live pages discovered during crawls — candidate replacements for dead links. */
+  const candidateUrls = useMemo(() => {
+    const set = new Set<string>();
+    for (const l of links) {
+      set.add(l.source_url);
+      if (l.replacement_url) set.add(l.replacement_url);
+    }
+    for (const i of seoIssues) set.add(i.url);
+    return [...set];
+  }, [links, seoIssues]);
 
   const allRows = useMemo<Row[]>(() => {
     const linkRows: Row[] = links.map((link) => ({
@@ -340,7 +354,17 @@ export function BrokenLinksTable({
                       </p>
                     )}
                   </div>
-                  <div className="flex shrink-0 gap-1">
+                  <div className="flex shrink-0 flex-wrap gap-1">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      disabled={busy}
+                      onClick={() => setReviewTarget({ kind: "seo", issue })}
+                    >
+                      <Sparkles className="h-3 w-3" />
+                      <span className="ml-1">Review Fix</span>
+                    </Button>
                     <Button
                       variant="ghost"
                       size="sm"
@@ -424,7 +448,17 @@ export function BrokenLinksTable({
                     </a>
                   )}
                 </div>
-                <div className="flex shrink-0 gap-1">
+                <div className="flex shrink-0 flex-wrap gap-1">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    disabled={busy}
+                    onClick={() => setReviewTarget({ kind: "link", link })}
+                  >
+                    <Sparkles className="h-3 w-3" />
+                    <span className="ml-1">Review Fix</span>
+                  </Button>
                   {!fixed && (
                     <Button
                       variant="ghost"
@@ -550,6 +584,16 @@ export function BrokenLinksTable({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      <IssueFixModal
+        target={reviewTarget}
+        candidateUrls={candidateUrls}
+        onOpenChange={(open) => !open && setReviewTarget(null)}
+        onApplyLinkFix={onFix}
+        onIgnore={(t) => {
+          if (t.kind === "link") onDelete(t.link.id);
+          else onDeleteSeoIssue(t.issue.id);
+        }}
+      />
     </Card>
   );
 }
